@@ -11,7 +11,15 @@ interface SettingsModalProps {
   onSaveSettings: (settings: AppSettings) => void;
 }
 
-const PROVIDER_OPTIONS: { id: AIProvider; name: string; desc: string; defaultModel: string }[] = [
+interface ProviderOption {
+  id: AIProvider;
+  name: string;
+  desc: string;
+  defaultModel: string;
+  models?: { value: string; label: string }[];
+}
+
+const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: "smart-parser",
     name: "Built-in Smart Semantic Engine (Offline / No Key)",
@@ -21,34 +29,89 @@ const PROVIDER_OPTIONS: { id: AIProvider; name: string; desc: string; defaultMod
   {
     id: "gemini",
     name: "Google Gemini",
-    desc: "High quality, ultra-fast generation with gemini-2.5-flash or 1.5-flash.",
+    desc: "Fast, high-quality generation. gemini-2.5-flash recommended for most use cases.",
     defaultModel: "gemini-2.5-flash",
+    models: [
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+      { value: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash Lite" },
+      { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
+      { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+    ],
   },
   {
     id: "openai",
     name: "OpenAI",
-    desc: "Uses GPT-4o-mini or GPT-4o for nuanced code reasoning.",
+    desc: "GPT models for nuanced code reasoning. gpt-4o-mini is fast and cost-efficient.",
     defaultModel: "gpt-4o-mini",
+    models: [
+      { value: "gpt-4o-mini", label: "GPT-4o Mini (recommended)" },
+      { value: "gpt-4o", label: "GPT-4o" },
+      { value: "gpt-4.1", label: "GPT-4.1" },
+      { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+      { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+      { value: "o4-mini", label: "o4-mini (reasoning)" },
+      { value: "o3", label: "o3 (reasoning)" },
+    ],
   },
   {
     id: "groq",
-    name: "Groq (Llama 3.3)",
-    desc: "Ultra-low latency inference via Groq cloud API.",
+    name: "Groq",
+    desc: "Ultra-low latency inference. Supports Llama 4, Llama 3.3, Gemma, and more.",
     defaultModel: "llama-3.3-70b-versatile",
+    models: [
+      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile (recommended)" },
+      { value: "llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout 17B" },
+      { value: "llama-4-maverick-17b-128e-instruct", label: "Llama 4 Maverick 17B" },
+      { value: "llama3-70b-8192", label: "Llama 3 70B" },
+      { value: "llama3-8b-8192", label: "Llama 3 8B" },
+      { value: "gemma2-9b-it", label: "Gemma 2 9B" },
+      { value: "mixtral-8x7b-32768", label: "Mixtral 8x7B" },
+    ],
   },
   {
     id: "anthropic",
     name: "Anthropic Claude",
-    desc: "Deep architectural synthesis with Claude 3.5 Sonnet.",
-    defaultModel: "claude-3-5-sonnet-20241022",
+    desc: "Deep architectural synthesis. Claude 3.7 Sonnet is the latest high-capability model.",
+    defaultModel: "claude-3-7-sonnet-20250219",
+    models: [
+      { value: "claude-3-7-sonnet-20250219", label: "Claude 3.7 Sonnet (recommended)" },
+      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
+      { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
+      { value: "claude-opus-4-5", label: "Claude Opus 4.5" },
+      { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+      { value: "claude-haiku-3-5", label: "Claude Haiku 3.5" },
+    ],
   },
   {
     id: "ollama",
     name: "Ollama (Local LLM)",
-    desc: "Self-hosted local model running on your local machine (e.g. localhost:11434).",
+    desc: "Self-hosted local model running on your machine (e.g. localhost:11434).",
     defaultModel: "llama3",
+    models: [
+      { value: "llama3", label: "Llama 3 (8B)" },
+      { value: "llama3:70b", label: "Llama 3 (70B)" },
+      { value: "llama3.1", label: "Llama 3.1" },
+      { value: "llama3.2", label: "Llama 3.2" },
+      { value: "mistral", label: "Mistral 7B" },
+      { value: "mixtral", label: "Mixtral 8x7B" },
+      { value: "codellama", label: "Code Llama" },
+      { value: "deepseek-coder-v2", label: "DeepSeek Coder V2" },
+      { value: "qwen2.5-coder", label: "Qwen 2.5 Coder" },
+      { value: "phi4", label: "Phi-4" },
+      { value: "gemma3", label: "Gemma 3" },
+    ],
   },
 ];
+
+const CUSTOM_MODEL_VALUE = "__custom__";
+
+function isCustomModel(provider: AIProvider, model: string): boolean {
+  const opt = PROVIDER_OPTIONS.find((p) => p.id === provider);
+  if (!opt?.models) return false;
+  return !opt.models.some((m) => m.value === model);
+}
 
 export function SettingsModal({
   isOpen,
@@ -59,11 +122,15 @@ export function SettingsModal({
   const [current, setCurrent] = useState<AppSettings>(settings);
   const [showApiKey, setShowApiKey] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
+  const [useCustomModel, setUseCustomModel] = useState<boolean>(() =>
+    isCustomModel(settings.provider, settings.model)
+  );
 
   if (!isOpen) return null;
 
   const handleProviderChange = (provider: AIProvider) => {
     const opt = PROVIDER_OPTIONS.find((p) => p.id === provider);
+    setUseCustomModel(false);
     setCurrent((prev) => ({
       ...prev,
       provider,
@@ -77,6 +144,16 @@ export function SettingsModal({
           ? "https://api.groq.com/openai/v1"
           : "",
     }));
+  };
+
+  const handleModelSelectChange = (value: string) => {
+    if (value === CUSTOM_MODEL_VALUE) {
+      setUseCustomModel(true);
+      setCurrent((prev) => ({ ...prev, model: "" }));
+    } else {
+      setUseCustomModel(false);
+      setCurrent((prev) => ({ ...prev, model: value }));
+    }
   };
 
   const handleSave = () => {
@@ -185,19 +262,57 @@ export function SettingsModal({
                 </div>
               )}
 
-              {/* Model Override */}
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Model Identifier
-                </label>
-                <input
-                  type="text"
-                  value={current.model}
-                  onChange={(e) => setCurrent({ ...current, model: e.target.value })}
-                  placeholder="e.g. gemini-2.5-flash or gpt-4o-mini"
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none font-mono"
-                />
-              </div>
+              {/* Model Selection */}
+              {(() => {
+                const opt = PROVIDER_OPTIONS.find((p) => p.id === current.provider);
+                const hasPresets = opt?.models && opt.models.length > 0;
+                return (
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Model
+                    </label>
+                    {hasPresets && !useCustomModel ? (
+                      <div className="space-y-2">
+                        <select
+                          value={current.model}
+                          onChange={(e) => handleModelSelectChange(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono appearance-none cursor-pointer"
+                        >
+                          {opt!.models!.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_MODEL_VALUE}>Custom model ID...</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <input
+                          type="text"
+                          value={current.model}
+                          onChange={(e) => setCurrent({ ...current, model: e.target.value })}
+                          placeholder="Enter exact model ID..."
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none font-mono"
+                          autoFocus
+                        />
+                        {hasPresets && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUseCustomModel(false);
+                              setCurrent((prev) => ({ ...prev, model: opt!.defaultModel }));
+                            }}
+                            className="text-[11px] text-zinc-400 hover:text-emerald-400 transition-colors"
+                          >
+                            ← Back to preset models
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Base URL (for Ollama or OpenAI proxies) */}
               {(current.provider === "ollama" || current.provider === "openai") && (

@@ -183,7 +183,7 @@ export async function generateBriefWithProvider(
         userPrompt
       );
     } else if (provider === "anthropic") {
-      modelName = model || "claude-3-5-sonnet-20241022";
+      modelName = model || "claude-3-7-sonnet-20250219";
       rawOutput = await callAnthropicAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
     } else if (provider === "ollama") {
       modelName = model || "llama3";
