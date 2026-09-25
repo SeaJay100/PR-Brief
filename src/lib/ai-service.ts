@@ -12,6 +12,53 @@ interface GenerateAIOptions {
   baseUrl?: string;
 }
 
+export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
+  "smart-parser": "Rule-Based AST",
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4o-mini",
+  groq: "llama-3.3-70b-versatile",
+  anthropic: "claude-3-7-sonnet-20250219",
+  ollama: "llama3",
+};
+
+// Known deprecated or legacy models mapped to their modern, active successors across all providers
+export const MODEL_REMAP_MAP: Record<string, string> = {
+  // Google Gemini
+  "gemini-2.0-flash": "gemini-2.5-flash",
+  "gemini-2.0-flash-lite": "gemini-2.5-flash",
+  "gemini-1.0-pro": "gemini-2.5-flash",
+  "gemini-pro": "gemini-2.5-flash",
+
+  // OpenAI
+  "gpt-3.5-turbo": "gpt-4o-mini",
+  "gpt-3.5-turbo-16k": "gpt-4o-mini",
+  "gpt-4-turbo-preview": "gpt-4o",
+  "gpt-4-1106-preview": "gpt-4o",
+  "gpt-4-0125-preview": "gpt-4o",
+
+  // Groq
+  "llama3-8b-8192": "llama-3.3-70b-versatile",
+  "llama3-70b-8192": "llama-3.3-70b-versatile",
+  "llama-3.1-70b-versatile": "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant": "llama-3.3-70b-versatile",
+  "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
+
+  // Anthropic
+  "claude-3-sonnet-20240229": "claude-3-7-sonnet-20250219",
+  "claude-3-opus-20240229": "claude-3-7-sonnet-20250219",
+  "claude-2.1": "claude-3-5-haiku-20241022",
+  "claude-2.0": "claude-3-5-haiku-20241022",
+};
+
+export function resolveModernModel(provider: AIProvider, inputModel?: string): string {
+  const defaultModel = DEFAULT_PROVIDER_MODELS[provider] || "gpt-4o-mini";
+  if (!inputModel || !inputModel.trim()) {
+    return defaultModel;
+  }
+  const clean = inputModel.trim().replace(/^models\//, "");
+  return MODEL_REMAP_MAP[clean] || clean;
+}
+
 export function constructPrompt(
   parsed: ParsedDiff,
   commits: string = "",
@@ -98,17 +145,22 @@ Your task is to generate a professional, accurate, and structured Pull Request d
 2. Accurately reflect the actual changes present in the diff and commit messages. Do NOT hallucinate changes that are not in the diff.
 3. Highlight breaking changes, migrations, or sensitive security/auth alterations.
 4. Also suggest a Conventional Commit title on the very first line prefixed with "TITLE: ". Example: "TITLE: feat(billing): add Stripe checkout and upgrade modal"
-5. Follow the template specifications precisely.
 
 ${templateInstructions}`;
 
-  const userPrompt = `Here is the Git Diff and Commit Logs:
+  const userPrompt = `Pull Request Analysis Data:
+Total Files Changed: ${parsed.stats.totalFiles}
+Total Additions: +${parsed.stats.totalAdditions}
+Total Deletions: -${parsed.stats.totalDeletions}
+Category Breakdown: ${Object.entries(parsed.stats.categoryCounts)
+    .filter(([, count]) => count > 0)
+    .map(([cat, count]) => `${cat} (${count})`)
+    .join(", ")}
 
-${commits ? `### Commit History:\n${commits}\n\n` : ""}
-### Changed Files Overview (${parsed.stats.totalFiles} files, +${parsed.stats.totalAdditions}/-${parsed.stats.totalDeletions} lines):
-${parsed.files.map((f) => `- ${f.path} [${f.category}] (${f.status}, +${f.additions}/-${f.deletions})`).join("\n")}
+${commits ? `Commit Messages:\n${commits}\n\n` : ""}Files Changed:
+${parsed.files.map((f) => `- ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`).join("\n")}
 
-### Cleaned Git Diff:
+Git Diff:
 \`\`\`diff
 ${parsed.cleanDiff}
 \`\`\`
@@ -117,16 +169,29 @@ ${parsed.cleanDiff}
   return { systemPrompt, userPrompt };
 }
 
-export async function generateBriefWithProvider(
-  options: GenerateAIOptions
-): Promise<{ title: string; markdown: string; providerUsed: string; modelUsed: string; warnings?: string[] }> {
-  const { provider, apiKey, model, baseUrl, parsed, commits, template, tone } = options;
+export const generateBriefWithProvider = generateWithAI;
 
+export async function generateWithAI({
+  parsed,
+  commits = "",
+  template,
+  tone,
+  provider,
+  apiKey,
+  model,
+  baseUrl,
+}: GenerateAIOptions): Promise<{
+  title: string;
+  markdown: string;
+  providerUsed: string;
+  modelUsed?: string;
+  warnings?: string[];
+}> {
   if (provider === "smart-parser") {
-    const result = generateRuleBasedBrief({ parsed, commits, template, tone });
+    const brief = generateRuleBasedBrief({ parsed, commits, template, tone });
     return {
-      title: result.title,
-      markdown: result.markdown,
+      title: brief.title,
+      markdown: brief.markdown,
       providerUsed: "Smart Semantic Parser (Local Rule-Based)",
       modelUsed: "AST & Diff Pattern Analyzer",
     };
@@ -159,38 +224,45 @@ export async function generateBriefWithProvider(
 
   try {
     let rawOutput = "";
-    let modelName = model || "";
+    let modelName = resolveModernModel(provider, model);
+    const warnings: string[] = [];
 
     if (provider === "gemini") {
-      modelName = model || "gemini-2.5-flash";
-      if (modelName === "gemini-2.0-flash" || modelName === "gemini-2.0-flash-lite") {
-        modelName = "gemini-2.5-flash";
+      const res = await callGeminiAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
+      rawOutput = res.text;
+      if (res.usedModel !== modelName) {
+        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        modelName = res.usedModel;
       }
-      rawOutput = await callGeminiAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
-    } else if (provider === "openai") {
-      modelName = model || "gpt-4o-mini";
-      rawOutput = await callOpenAICompatibleAPI(
+    } else if (provider === "openai" || provider === "groq") {
+      const defaultEndpoint = provider === "groq" ? "https://api.groq.com/openai/v1" : "https://api.openai.com/v1";
+      const res = await callOpenAICompatibleAPI(
         effectiveKey!,
-        baseUrl || "https://api.openai.com/v1",
+        baseUrl || defaultEndpoint,
         modelName,
         systemPrompt,
-        userPrompt
+        userPrompt,
+        provider
       );
-    } else if (provider === "groq") {
-      modelName = model || "llama-3.3-70b-versatile";
-      rawOutput = await callOpenAICompatibleAPI(
-        effectiveKey!,
-        "https://api.groq.com/openai/v1",
-        modelName,
-        systemPrompt,
-        userPrompt
-      );
+      rawOutput = res.text;
+      if (res.usedModel !== modelName) {
+        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        modelName = res.usedModel;
+      }
     } else if (provider === "anthropic") {
-      modelName = model || "claude-3-7-sonnet-20250219";
-      rawOutput = await callAnthropicAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
+      const res = await callAnthropicAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
+      rawOutput = res.text;
+      if (res.usedModel !== modelName) {
+        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        modelName = res.usedModel;
+      }
     } else if (provider === "ollama") {
-      modelName = model || "llama3";
-      rawOutput = await callOllamaAPI(baseUrl || "http://localhost:11434", modelName, systemPrompt, userPrompt);
+      const res = await callOllamaAPI(baseUrl || "http://localhost:11434", modelName, systemPrompt, userPrompt);
+      rawOutput = res.text;
+      if (res.usedModel !== modelName) {
+        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        modelName = res.usedModel;
+      }
     }
 
     let title = parsed.suggestedTitle || "PR: Updates and improvements";
@@ -207,6 +279,7 @@ export async function generateBriefWithProvider(
       markdown,
       providerUsed: provider,
       modelUsed: modelName,
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   } catch (error: unknown) {
     console.error(`[AI_PROVIDER_ERROR_${provider}]`, error);
@@ -222,79 +295,75 @@ export async function generateBriefWithProvider(
   }
 }
 
+// -------------------------------------------------------------
+// Provider Callers with Built-In Automated Model Fallback Chains
+// -------------------------------------------------------------
+
 async function callGeminiAPI(
   apiKey: string,
   model: string,
   systemPrompt: string,
   userPrompt: string
-): Promise<string> {
-  let cleanModel = model.replace(/^models\//, "").trim();
-  if (cleanModel === "gemini-2.0-flash" || cleanModel === "gemini-2.0-flash-lite") {
-    cleanModel = "gemini-2.5-flash";
-  }
+): Promise<{ text: string; usedModel: string }> {
+  const modelsToTry = [
+    model,
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+  ].filter((m, i, arr) => arr.indexOf(m) === i);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+  let lastError: Error | null = null;
 
-  let res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: userPrompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2500,
-      },
-    }),
-  });
+  for (const currentModel of modelsToTry) {
+    const cleanModel = currentModel.replace(/^models\//, "").trim();
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
-  // If 404 (model deprecated or not found), attempt automatic fallback to gemini-2.5-flash
-  if (res.status === 404 && cleanModel !== "gemini-2.5-flash") {
-    const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const fallbackRes = await fetch(fallbackUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt }],
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: systemPrompt }],
           },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2500,
-        },
-      }),
-    });
-    if (fallbackRes.ok) {
-      res = fallbackRes;
-      cleanModel = "gemini-2.5-flash";
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 2500,
+          },
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          return { text, usedModel: cleanModel };
+        }
+      }
+
+      // If model not found or deprecated, try next model in chain
+      if (res.status === 404 || res.status === 400) {
+        const errorText = await res.text();
+        lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
+        continue;
+      }
+
+      const errorText = await res.text();
+      throw new Error(`Gemini API error (${res.status}): ${errorText}`);
+    } catch (e: unknown) {
+      if (e instanceof Error && !e.message.includes("404")) {
+        throw e;
+      }
+      lastError = e instanceof Error ? e : new Error(String(e));
     }
   }
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${errorText}`);
-  }
-
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("No text response returned from Gemini API");
-  }
-
-  return text;
+  throw lastError || new Error("Failed to generate with Gemini API");
 }
 
 async function callOpenAICompatibleAPI(
@@ -302,39 +371,75 @@ async function callOpenAICompatibleAPI(
   baseUrl: string,
   model: string,
   systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  userPrompt: string,
+  provider: "openai" | "groq"
+): Promise<{ text: string; usedModel: string }> {
+  const defaultFallback = provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+  const secondaryFallback = provider === "groq" ? "llama-3.1-8b-instant" : "gpt-4o";
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 2500,
-    }),
-  });
+  const modelsToTry = [
+    model,
+    defaultFallback,
+    secondaryFallback,
+  ].filter((m, i, arr) => arr.indexOf(m) === i);
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`OpenAI API error (${res.status}): ${errorText}`);
+  let lastError: Error | null = null;
+  const cleanBase = baseUrl.replace(/\/$/, "");
+  const url = `${cleanBase}/chat/completions`;
+
+  for (const currentModel of modelsToTry) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 2500,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (text) {
+          return { text, usedModel: currentModel };
+        }
+      }
+
+      const errorText = await res.text();
+      lastError = new Error(`${provider.toUpperCase()} API error (${res.status}): ${errorText}`);
+
+      // If model not found or decommissioned, try next fallback model
+      const isModelError =
+        res.status === 404 ||
+        (res.status === 400 &&
+          (errorText.includes("model_not_found") ||
+            errorText.includes("model_decommissioned") ||
+            errorText.includes("does not exist") ||
+            errorText.includes("invalid_model")));
+
+      if (isModelError) {
+        continue;
+      }
+
+      throw lastError;
+    } catch (e: unknown) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      if (lastError.message.includes("401") || lastError.message.includes("403")) {
+        throw lastError; // Auth errors should fail fast without looping
+      }
+    }
   }
 
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (!text) {
-    throw new Error("No text response returned from API");
-  }
-
-  return text;
+  throw lastError || new Error(`Failed to generate with ${provider} API`);
 }
 
 async function callAnthropicAPI(
@@ -342,37 +447,67 @@ async function callAnthropicAPI(
   model: string,
   systemPrompt: string,
   userPrompt: string
-): Promise<string> {
+): Promise<{ text: string; usedModel: string }> {
+  const modelsToTry = [
+    model,
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+  ].filter((m, i, arr) => arr.indexOf(m) === i);
+
+  let lastError: Error | null = null;
   const url = "https://api.anthropic.com/v1/messages";
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-      max_tokens: 2500,
-      temperature: 0.2,
-    }),
-  });
+  for (const currentModel of modelsToTry) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+          max_tokens: 2500,
+          temperature: 0.2,
+        }),
+      });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${errorText}`);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.content?.[0]?.text;
+        if (text) {
+          return { text, usedModel: currentModel };
+        }
+      }
+
+      const errorText = await res.text();
+      lastError = new Error(`Anthropic API error (${res.status}): ${errorText}`);
+
+      const isModelError =
+        res.status === 404 ||
+        (res.status === 400 &&
+          (errorText.includes("not_found_error") ||
+            errorText.includes("model") ||
+            errorText.includes("invalid_request_error")));
+
+      if (isModelError) {
+        continue;
+      }
+
+      throw lastError;
+    } catch (e: unknown) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      if (lastError.message.includes("401")) {
+        throw lastError;
+      }
+    }
   }
 
-  const data = await res.json();
-  const text = data?.content?.[0]?.text;
-  if (!text) {
-    throw new Error("No text response returned from Anthropic");
-  }
-
-  return text;
+  throw lastError || new Error("Failed to generate with Anthropic API");
 }
 
 async function callOllamaAPI(
@@ -380,32 +515,71 @@ async function callOllamaAPI(
   model: string,
   systemPrompt: string,
   userPrompt: string
-): Promise<string> {
-  const url = `${baseUrl.replace(/\/$/, "")}/api/chat`;
+): Promise<{ text: string; usedModel: string }> {
+  const cleanBase = baseUrl.replace(/\/$/, "");
+  const chatUrl = `${cleanBase}/api/chat`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      stream: false,
-    }),
-  });
+  // First try the requested model
+  try {
+    const res = await fetch(chatUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        stream: false,
+      }),
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.message?.content;
+      if (text) {
+        return { text, usedModel: model };
+      }
+    }
+
+    // If model not found, query Ollama's local tags to discover an installed model
+    if (res.status === 404) {
+      try {
+        const tagsRes = await fetch(`${cleanBase}/api/tags`);
+        if (tagsRes.ok) {
+          const tagsData = await tagsRes.json();
+          const availableModels: string[] = tagsData?.models?.map((m: { name?: string }) => m.name) || [];
+          for (const localModel of availableModels) {
+            if (!localModel || localModel === model) continue;
+            const retryRes = await fetch(chatUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: localModel,
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userPrompt },
+                ],
+                stream: false,
+              }),
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              const text = retryData?.message?.content;
+              if (text) {
+                return { text, usedModel: localModel };
+              }
+            }
+          }
+        }
+      } catch (discoveryErr) {
+        console.warn("Failed to discover local Ollama models:", discoveryErr);
+      }
+    }
+
     const errorText = await res.text();
     throw new Error(`Ollama API error (${res.status}): ${errorText}`);
+  } catch (err: unknown) {
+    throw err instanceof Error ? err : new Error(String(err));
   }
-
-  const data = await res.json();
-  const text = data?.message?.content;
-  if (!text) {
-    throw new Error("No text response returned from Ollama");
-  }
-
-  return text;
 }

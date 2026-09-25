@@ -16,6 +16,7 @@ import {
   PRTone,
   SampleDiffPreset,
 } from "@/types";
+import { MODEL_REMAP_MAP } from "@/lib/ai-service";
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "smart-parser",
@@ -49,11 +50,12 @@ export default function Home() {
         const saved = localStorage.getItem("pr_brief_settings");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (
-            parsed.provider === "gemini" &&
-            (parsed.model === "gemini-2.0-flash" || parsed.model === "gemini-2.0-flash-lite")
-          ) {
-            parsed.model = "gemini-2.5-flash";
+          let changed = false;
+          if (parsed.model && MODEL_REMAP_MAP[parsed.model]) {
+            parsed.model = MODEL_REMAP_MAP[parsed.model];
+            changed = true;
+          }
+          if (changed) {
             localStorage.setItem("pr_brief_settings", JSON.stringify(parsed));
           }
           return parsed;

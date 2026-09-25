@@ -60,12 +60,10 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     defaultModel: "llama-3.3-70b-versatile",
     models: [
       { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B Versatile (recommended)" },
+      { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant" },
       { value: "llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout 17B" },
       { value: "llama-4-maverick-17b-128e-instruct", label: "Llama 4 Maverick 17B" },
-      { value: "llama3-70b-8192", label: "Llama 3 70B" },
-      { value: "llama3-8b-8192", label: "Llama 3 8B" },
       { value: "gemma2-9b-it", label: "Gemma 2 9B" },
-      { value: "mixtral-8x7b-32768", label: "Mixtral 8x7B" },
     ],
   },
   {
