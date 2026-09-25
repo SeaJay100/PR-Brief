@@ -73,11 +73,14 @@ assert(singleParsed.stats.totalAdditions === 1, "Single line additions count 1")
 assert(singleParsed.stats.totalDeletions === 1, "Single line deletions count 1");
 
 console.log("\n=== 5. Testing Multi-Provider Model Fallbacks & Remappings ===");
-assert(resolveModernModel("gemini") === "gemini-2.5-flash", "Gemini default is gemini-2.5-flash");
-assert(resolveModernModel("gemini", "gemini-1.5-flash") === "gemini-2.5-flash", "Remaps legacy gemini-1.5-flash to gemini-2.5-flash");
+assert(resolveModernModel("gemini") === "gemini-3.8-flash", "Gemini default is gemini-3.8-flash");
+assert(resolveModernModel("gemini", "gemini-3.8-flash") === "gemini-3.8-flash", "Preserves active gemini-3.8-flash");
+assert(resolveModernModel("gemini", "gemini-2.0-flash") === "gemini-3.8-flash", "Remaps sunset gemini-2.0-flash to gemini-3.8-flash");
+assert(resolveModernModel("gemini", "gemini-1.5-flash") === "gemini-3.8-flash", "Remaps legacy gemini-1.5-flash to gemini-3.8-flash");
 assert(resolveModernModel("gemini", "gemini-1.5-flash-8b") === "gemini-2.5-flash-lite", "Remaps legacy gemini-1.5-flash-8b to gemini-2.5-flash-lite");
 assert(resolveModernModel("gemini", "gemini-1.5-pro") === "gemini-2.5-pro", "Remaps legacy gemini-1.5-pro to gemini-2.5-pro");
-assert(resolveModernModel("gemini", "gemini-2.0-flash") === "gemini-2.0-flash", "Preserves active gemini-2.0-flash");
+assert(resolveModernModel("gemini", "gemini-2.5-flash") === "gemini-2.5-flash", "Preserves active gemini-2.5-flash");
+assert(resolveModernModel("gemini", "gemini-3.5-flash") === "gemini-3.5-flash", "Preserves active gemini-3.5-flash");
 assert(resolveModernModel("gemini", "gemini-2.5-flash-lite") === "gemini-2.5-flash-lite", "Preserves active gemini-2.5-flash-lite");
 assert(resolveModernModel("openai") === "gpt-4o-mini", "OpenAI default is gpt-4o-mini");
 assert(resolveModernModel("openai", "gpt-3.5-turbo") === "gpt-4o-mini", "Remaps deprecated gpt-3.5-turbo");

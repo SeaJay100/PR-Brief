@@ -14,56 +14,55 @@ interface GenerateAIOptions {
 
 export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
   "smart-parser": "Rule-Based AST",
-  gemini: "gemini-2.5-flash",
-  openai: "gpt-4.1-mini",
-  groq: "llama-4-maverick-17b-128e-instruct",
-  anthropic: "claude-sonnet-4-5",
-  ollama: "llama3.2",
+  gemini: "gemini-3.8-flash",
+  openai: "gpt-4o-mini",
+  groq: "llama-3.3-70b-versatile",
+  anthropic: "claude-3-7-sonnet-20250219",
+  ollama: "llama3",
 };
 
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
-  // Google Gemini — deprecated / retired models
-  // NOTE: gemini-2.5-flash is unavailable on older API key tiers; those requests
-  // fall through the candidate chain to gemini-2.0-flash automatically.
-  "gemini-1.0-pro": "gemini-2.0-flash",
-  "gemini-pro": "gemini-2.0-flash",
-  "gemini-1.5-flash": "gemini-2.0-flash",
-  "gemini-1.5-flash-8b": "gemini-2.0-flash",
+  // Google Gemini — all 1.x and 2.0 models are permanently sunset by Google; remap to active models
+  "gemini-2.0-flash": "gemini-3.8-flash",
+  "gemini-2.0-flash-001": "gemini-3.8-flash",
+  "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
+  "gemini-2.0-flash-lite-001": "gemini-2.5-flash-lite",
+  "gemini-2.0-pro": "gemini-2.5-pro",
+  "gemini-2.0-pro-exp-02-05": "gemini-2.5-pro",
+  "gemini-1.5-flash": "gemini-3.8-flash",
+  "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
   "gemini-1.5-pro": "gemini-2.5-pro",
-  "gemini-2.0-flash-lite": "gemini-2.0-flash",
+  "gemini-1.0-pro": "gemini-3.8-flash",
+  "gemini-pro": "gemini-3.8-flash",
 
-  // OpenAI — deprecated / retired models
-  "gpt-4": "gpt-4.1",
-  "gpt-4-0613": "gpt-4.1",
-  "gpt-4-turbo": "gpt-4.1",
-  "gpt-4-turbo-preview": "gpt-4.1",
-  "gpt-4-1106-preview": "gpt-4.1",
-  "gpt-4-0125-preview": "gpt-4.1",
-  "gpt-4o": "gpt-4.1",
-  "gpt-4o-mini": "gpt-4.1-mini",
-  "gpt-3.5-turbo": "gpt-4.1-mini",
-  "gpt-3.5-turbo-16k": "gpt-4.1-mini",
+  // OpenAI legacy models
+  "gpt-3.5-turbo": "gpt-4o-mini",
+  "gpt-3.5-turbo-16k": "gpt-4o-mini",
+  "gpt-4": "gpt-4o",
+  "gpt-4-0613": "gpt-4o",
+  "gpt-4-turbo": "gpt-4o-mini",
+  "gpt-4-turbo-preview": "gpt-4o-mini",
+  "gpt-4-1106-preview": "gpt-4o-mini",
+  "gpt-4-0125-preview": "gpt-4o-mini",
 
-  // Groq — deprecated / retired models
-  "llama3-8b-8192": "llama-4-scout-17b-16e-instruct",
-  "llama3-70b-8192": "llama-4-maverick-17b-128e-instruct",
-  "llama-3.1-8b-instant": "llama-4-scout-17b-16e-instruct",
-  "llama-3.1-70b-versatile": "llama-4-maverick-17b-128e-instruct",
-  "llama-3.3-70b-versatile": "llama-4-maverick-17b-128e-instruct",
-  "mixtral-8x7b-32768": "llama-4-maverick-17b-128e-instruct",
-  "gemma2-9b-it": "llama-4-scout-17b-16e-instruct",
+  // Groq legacy models
+  "llama3-8b-8192": "llama-3.3-70b-versatile",
+  "llama3-70b-8192": "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant": "llama-3.3-70b-versatile",
+  "llama-3.1-70b-versatile": "llama-3.3-70b-versatile",
+  "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
+  "gemma2-9b-it": "llama-3.3-70b-versatile",
 
-  // Anthropic — deprecated / retired models
-  "claude-instant-1.2": "claude-haiku-4-5",
-  "claude-2.0": "claude-haiku-4-5",
-  "claude-2.1": "claude-haiku-4-5",
-  "claude-3-haiku-20240307": "claude-haiku-4-5",
-  "claude-3-sonnet-20240229": "claude-sonnet-4-5",
-  "claude-3-opus-20240229": "claude-opus-4-5",
-  "claude-3-5-haiku-20241022": "claude-haiku-4-5",
-  "claude-3-5-sonnet-20241022": "claude-sonnet-4-5",
-  "claude-3-7-sonnet-20250219": "claude-sonnet-4-5",
+  // Anthropic legacy models
+  "claude-instant-1.2": "claude-3-7-sonnet-20250219",
+  "claude-2.0": "claude-3-7-sonnet-20250219",
+  "claude-2.1": "claude-3-7-sonnet-20250219",
+  "claude-3-haiku-20240307": "claude-3-7-sonnet-20250219",
+  "claude-3-sonnet-20240229": "claude-3-7-sonnet-20250219",
+  "claude-3-opus-20240229": "claude-3-7-sonnet-20250219",
+  "claude-3-5-haiku-20241022": "claude-3-7-sonnet-20250219",
+  "claude-3-5-sonnet-20241022": "claude-3-7-sonnet-20250219",
 };
 
 export function resolveModernModel(provider: AIProvider, inputModel?: string): string {
@@ -72,7 +71,35 @@ export function resolveModernModel(provider: AIProvider, inputModel?: string): s
     return defaultModel;
   }
   const clean = inputModel.trim().replace(/^models\//, "");
-  return MODEL_REMAP_MAP[clean] || clean;
+  if (MODEL_REMAP_MAP[clean]) {
+    return MODEL_REMAP_MAP[clean];
+  }
+
+  // Google Gemini dynamic regex checks for sunset/legacy models
+  if (provider === "gemini") {
+    if (/gemini-(1\.5|2\.0)-pro/i.test(clean)) return "gemini-2.5-pro";
+    if (/gemini-(1\.5-flash-8b|2\.0-flash-lite)/i.test(clean)) return "gemini-2.5-flash-lite";
+    if (/(1\.[05]|2\.0|pro-vision)/i.test(clean)) return "gemini-3.8-flash";
+  }
+
+  // OpenAI dynamic checks
+  if (provider === "openai") {
+    if (/^gpt-3\.5/i.test(clean) || /^gpt-4-turbo/i.test(clean)) return "gpt-4o-mini";
+  }
+
+  // Groq dynamic checks
+  if (provider === "groq") {
+    if (/^llama3-(8b|70b)/i.test(clean) || /^mixtral/i.test(clean)) return "llama-3.3-70b-versatile";
+  }
+
+  // Anthropic dynamic checks
+  if (provider === "anthropic") {
+    if (/^claude-2/i.test(clean) || /^claude-3-sonnet/i.test(clean) || /^claude-3-opus/i.test(clean)) {
+      return "claude-3-7-sonnet-20250219";
+    }
+  }
+
+  return clean;
 }
 
 export function constructPrompt(
@@ -327,22 +354,22 @@ async function callGeminiAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ text: string; usedModel: string }> {
-  // Never attempt deprecated 1.5 or 1.0 models. Filter them out immediately.
+  // Never attempt deprecated 1.x or 2.0 models. Filter them out immediately.
   const cleanInput = model.replace(/^models\//, "").trim();
   const sanitizedModel = MODEL_REMAP_MAP[cleanInput] || cleanInput;
 
-  // Candidate order: try user-selected model first, then 2.5-flash (new-tier keys),
-  // then 2.0-flash (works on all key tiers including older accounts).
+  // Candidate order: user's sanitized model, then Gemini 3.8 Flash, 2.5 Flash, 3.5 Flash, etc.
   const candidateModels = [
     sanitizedModel,
+    "gemini-3.8-flash",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
-      !m.includes("1.5") &&
-      !m.includes("1.0") &&
-      !m.includes("pro-vision")
+      !/(1\.[05]|2\.0|pro-vision)/i.test(m)
   );
 
   let lastError: Error | null = null;
