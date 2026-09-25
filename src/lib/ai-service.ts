@@ -15,40 +15,54 @@ interface GenerateAIOptions {
 export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
   "smart-parser": "Rule-Based AST",
   gemini: "gemini-2.5-flash",
-  openai: "gpt-4o-mini",
-  groq: "llama-3.3-70b-versatile",
-  anthropic: "claude-3-7-sonnet-20250219",
-  ollama: "llama3",
+  openai: "gpt-4.1-mini",
+  groq: "llama-4-maverick-17b-128e-instruct",
+  anthropic: "claude-sonnet-4-5",
+  ollama: "llama3.2",
 };
 
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
-  // Google Gemini legacy models
+  // Google Gemini — deprecated / retired models
+  "gemini-1.0-pro": "gemini-2.5-flash",
+  "gemini-pro": "gemini-2.5-flash",
   "gemini-1.5-flash": "gemini-2.5-flash",
   "gemini-1.5-flash-8b": "gemini-2.5-flash",
   "gemini-1.5-pro": "gemini-2.5-pro",
-  "gemini-1.0-pro": "gemini-2.5-flash",
-  "gemini-pro": "gemini-2.5-flash",
   "gemini-2.0-flash-lite": "gemini-2.5-flash",
+  "gemini-2.0-flash": "gemini-2.5-flash",
 
-  // OpenAI legacy models
-  "gpt-3.5-turbo": "gpt-4o-mini",
-  "gpt-3.5-turbo-16k": "gpt-4o-mini",
-  "gpt-4-turbo-preview": "gpt-4o",
-  "gpt-4-1106-preview": "gpt-4o",
-  "gpt-4-0125-preview": "gpt-4o",
+  // OpenAI — deprecated / retired models
+  "gpt-4": "gpt-4.1",
+  "gpt-4-0613": "gpt-4.1",
+  "gpt-4-turbo": "gpt-4.1",
+  "gpt-4-turbo-preview": "gpt-4.1",
+  "gpt-4-1106-preview": "gpt-4.1",
+  "gpt-4-0125-preview": "gpt-4.1",
+  "gpt-4o": "gpt-4.1",
+  "gpt-4o-mini": "gpt-4.1-mini",
+  "gpt-3.5-turbo": "gpt-4.1-mini",
+  "gpt-3.5-turbo-16k": "gpt-4.1-mini",
 
-  // Groq legacy models
-  "llama3-8b-8192": "llama-3.3-70b-versatile",
-  "llama3-70b-8192": "llama-3.3-70b-versatile",
-  "llama-3.1-70b-versatile": "llama-3.3-70b-versatile",
-  "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
+  // Groq — deprecated / retired models
+  "llama3-8b-8192": "llama-4-scout-17b-16e-instruct",
+  "llama3-70b-8192": "llama-4-maverick-17b-128e-instruct",
+  "llama-3.1-8b-instant": "llama-4-scout-17b-16e-instruct",
+  "llama-3.1-70b-versatile": "llama-4-maverick-17b-128e-instruct",
+  "llama-3.3-70b-versatile": "llama-4-maverick-17b-128e-instruct",
+  "mixtral-8x7b-32768": "llama-4-maverick-17b-128e-instruct",
+  "gemma2-9b-it": "llama-4-scout-17b-16e-instruct",
 
-  // Anthropic legacy models
-  "claude-3-sonnet-20240229": "claude-3-7-sonnet-20250219",
-  "claude-3-opus-20240229": "claude-3-7-sonnet-20250219",
-  "claude-2.1": "claude-3-5-haiku-20241022",
-  "claude-2.0": "claude-3-5-haiku-20241022",
+  // Anthropic — deprecated / retired models
+  "claude-instant-1.2": "claude-haiku-4-5",
+  "claude-2.0": "claude-haiku-4-5",
+  "claude-2.1": "claude-haiku-4-5",
+  "claude-3-haiku-20240307": "claude-haiku-4-5",
+  "claude-3-sonnet-20240229": "claude-sonnet-4-5",
+  "claude-3-opus-20240229": "claude-opus-4-5",
+  "claude-3-5-haiku-20241022": "claude-haiku-4-5",
+  "claude-3-5-sonnet-20241022": "claude-sonnet-4-5",
+  "claude-3-7-sonnet-20250219": "claude-sonnet-4-5",
 };
 
 export function resolveModernModel(provider: AIProvider, inputModel?: string): string {
@@ -319,6 +333,7 @@ async function callGeminiAPI(
   const candidateModels = [
     sanitizedModel,
     "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
   ].filter(
     (m, i, arr) =>
@@ -333,7 +348,7 @@ async function callGeminiAPI(
   for (const currentModel of candidateModels) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent`;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -356,7 +371,7 @@ async function callGeminiAPI(
               maxOutputTokens: 4000,
             },
           }),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(45000),
         });
 
         if (res.ok) {
@@ -390,8 +405,8 @@ async function callGeminiAPI(
 
         // Retry on 503 high demand or 429 rate limit with exponential backoff before jumping models
         if (res.status === 503 || res.status === 429 || res.status === 502) {
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * Math.pow(2, attempt)));
             continue;
           }
           break; // Move to next candidate model
@@ -426,14 +441,11 @@ async function callOpenAICompatibleAPI(
   userPrompt: string,
   provider: "openai" | "groq"
 ): Promise<{ text: string; usedModel: string }> {
-  const defaultFallback = provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
-  const secondaryFallback = provider === "groq" ? "llama-3.1-8b-instant" : "gpt-4o";
+  const groqFallbacks = ["llama-4-maverick-17b-128e-instruct", "llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"];
+  const openAIFallbacks = ["gpt-4.1-mini", "gpt-4.1", "gpt-4.1-nano"];
+  const fallbacks = provider === "groq" ? groqFallbacks : openAIFallbacks;
 
-  const modelsToTry = [
-    model,
-    defaultFallback,
-    secondaryFallback,
-  ].filter((m, i, arr) => arr.indexOf(m) === i);
+  const modelsToTry = [model, ...fallbacks].filter((m, i, arr) => arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
   const cleanBase = baseUrl.trim().replace(/\/$/, "");
@@ -458,7 +470,7 @@ async function callOpenAICompatibleAPI(
       requestBody.temperature = 0.2;
     }
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -467,7 +479,7 @@ async function callOpenAICompatibleAPI(
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(requestBody),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(45000),
         });
 
         if (res.ok) {
@@ -494,10 +506,10 @@ async function callOpenAICompatibleAPI(
           throw lastError;
         }
 
-        // Retry on 429, 503, or 502
+        // Retry on 429, 503, or 502 with exponential backoff
         if (res.status === 429 || res.status === 503 || res.status === 502) {
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * Math.pow(2, attempt)));
             continue;
           }
           break; // Move to next fallback model
@@ -542,16 +554,16 @@ async function callAnthropicAPI(
 ): Promise<{ text: string; usedModel: string }> {
   const modelsToTry = [
     model,
-    "claude-3-7-sonnet-20250219",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+    "claude-opus-4-5",
   ].filter((m, i, arr) => arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
   const url = "https://api.anthropic.com/v1/messages";
 
   for (const currentModel of modelsToTry) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -567,7 +579,7 @@ async function callAnthropicAPI(
             max_tokens: 4000,
             temperature: 0.2,
           }),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(45000),
         });
 
         if (res.ok) {
@@ -598,10 +610,10 @@ async function callAnthropicAPI(
           throw lastError;
         }
 
-        // Retry on 529 (overloaded), 503, 429, or 502
+        // Retry on 529 (overloaded), 503, 429, or 502 with exponential backoff
         if (res.status === 529 || res.status === 503 || res.status === 429 || res.status === 502) {
-          if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * Math.pow(2, attempt)));
             continue;
           }
           break; // Move to next fallback model
@@ -659,7 +671,7 @@ async function callOllamaAPI(
         ],
         stream: false,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(45000),
     });
 
     const responseBody = res.ok ? await res.json().catch(() => null) : null;
@@ -694,7 +706,7 @@ async function callOllamaAPI(
                 ],
                 stream: false,
               }),
-              signal: AbortSignal.timeout(30000),
+              signal: AbortSignal.timeout(45000),
             });
             if (retryRes.ok) {
               const retryData = await retryRes.json();
@@ -713,7 +725,7 @@ async function callOllamaAPI(
     throw new Error(`Ollama API error (${res.status})`);
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error(`Ollama request timed out after 30s. Ensure Ollama is running and responsive at ${normalizedBase}`);
+      throw new Error(`Ollama request timed out after 45s. Ensure Ollama is running and responsive at ${normalizedBase}`);
     }
     throw err instanceof Error ? err : new Error(String(err));
   }
