@@ -23,27 +23,27 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
-  // Google Gemini
-  "gemini-2.0-flash": "gemini-2.5-flash",
-  "gemini-2.0-flash-lite": "gemini-2.5-flash",
-  "gemini-1.0-pro": "gemini-2.5-flash",
-  "gemini-pro": "gemini-2.5-flash",
+  // Google Gemini legacy models
+  "gemini-1.5-flash": "gemini-2.5-flash-lite",
+  "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
+  "gemini-1.5-pro": "gemini-2.5-pro",
+  "gemini-1.0-pro": "gemini-2.5-flash-lite",
+  "gemini-pro": "gemini-2.5-flash-lite",
 
-  // OpenAI
+  // OpenAI legacy models
   "gpt-3.5-turbo": "gpt-4o-mini",
   "gpt-3.5-turbo-16k": "gpt-4o-mini",
   "gpt-4-turbo-preview": "gpt-4o",
   "gpt-4-1106-preview": "gpt-4o",
   "gpt-4-0125-preview": "gpt-4o",
 
-  // Groq
+  // Groq legacy models
   "llama3-8b-8192": "llama-3.3-70b-versatile",
   "llama3-70b-8192": "llama-3.3-70b-versatile",
   "llama-3.1-70b-versatile": "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant": "llama-3.3-70b-versatile",
   "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
 
-  // Anthropic
+  // Anthropic legacy models
   "claude-3-sonnet-20240229": "claude-3-7-sonnet-20250219",
   "claude-3-opus-20240229": "claude-3-7-sonnet-20250219",
   "claude-2.1": "claude-3-5-haiku-20241022",
@@ -305,61 +305,91 @@ async function callGeminiAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ text: string; usedModel: string }> {
-  const modelsToTry = [
+  // Active, modern models ordered by suitability and availability
+  const candidateModels = [
     model,
     "gemini-2.5-flash",
-    "gemini-1.5-flash",
-  ].filter((m, i, arr) => arr.indexOf(m) === i);
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",
+  ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
 
-  for (const currentModel of modelsToTry) {
+  for (const currentModel of candidateModels) {
     const cleanModel = currentModel.replace(/^models\//, "").trim();
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
 
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: userPrompt }],
+    // For transient errors (503/429), try up to 2 times with a backoff delay
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: {
+              parts: [{ text: systemPrompt }],
             },
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 2500,
-          },
-        }),
-      });
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: userPrompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 2500,
+            },
+          }),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          return { text, usedModel: cleanModel };
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) {
+            return { text, usedModel: cleanModel };
+          }
+        }
+
+        const errorText = await res.text();
+
+        // Fail fast on auth errors
+        if (
+          res.status === 400 &&
+          (errorText.includes("API_KEY_INVALID") ||
+            errorText.includes("API key not valid") ||
+            errorText.includes("CREDENTIALS_MISSING"))
+        ) {
+          throw new Error(`Gemini API error (${res.status}): ${errorText}`);
+        }
+
+        // On 503 (high demand) or 429 (rate limit), wait with backoff if we have another attempt
+        if (res.status === 503 || res.status === 429) {
+          lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue; // Retry this model once after delay
+          }
+          break; // Move to the next model in candidateModels
+        }
+
+        if (res.status === 502 || res.status === 404 || res.status === 400) {
+          lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
+          break; // Move to next model in candidateModels
+        }
+
+        throw new Error(`Gemini API error (${res.status}): ${errorText}`);
+      } catch (e: unknown) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (
+          lastError.message.includes("401") ||
+          lastError.message.includes("403") ||
+          lastError.message.includes("API_KEY_INVALID")
+        ) {
+          throw lastError; // Auth errors fail fast
         }
       }
-
-      // If model not found or deprecated, try next model in chain
-      if (res.status === 404 || res.status === 400) {
-        const errorText = await res.text();
-        lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
-        continue;
-      }
-
-      const errorText = await res.text();
-      throw new Error(`Gemini API error (${res.status}): ${errorText}`);
-    } catch (e: unknown) {
-      if (e instanceof Error && !e.message.includes("404")) {
-        throw e;
-      }
-      lastError = e instanceof Error ? e : new Error(String(e));
     }
   }
 
@@ -376,65 +406,94 @@ async function callOpenAICompatibleAPI(
 ): Promise<{ text: string; usedModel: string }> {
   const defaultFallback = provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
   const secondaryFallback = provider === "groq" ? "llama-3.1-8b-instant" : "gpt-4o";
+  const tertiaryFallback = provider === "groq" ? "gemma2-9b-it" : "gpt-4.1-mini";
 
   const modelsToTry = [
     model,
     defaultFallback,
     secondaryFallback,
-  ].filter((m, i, arr) => arr.indexOf(m) === i);
+    tertiaryFallback,
+  ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
   const cleanBase = baseUrl.replace(/\/$/, "");
   const url = `${cleanBase}/chat/completions`;
 
   for (const currentModel of modelsToTry) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: currentModel,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.2,
-          max_tokens: 2500,
-        }),
-      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: currentModel,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            temperature: 0.2,
+            max_tokens: 2500,
+          }),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content;
-        if (text) {
-          return { text, usedModel: currentModel };
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content;
+          if (text) {
+            return { text, usedModel: currentModel };
+          }
         }
-      }
 
-      const errorText = await res.text();
-      lastError = new Error(`${provider.toUpperCase()} API error (${res.status}): ${errorText}`);
+        const errorText = await res.text();
+        lastError = new Error(`${provider.toUpperCase()} API error (${res.status}): ${errorText}`);
 
-      // If model not found or decommissioned, try next fallback model
-      const isModelError =
-        res.status === 404 ||
-        (res.status === 400 &&
-          (errorText.includes("model_not_found") ||
-            errorText.includes("model_decommissioned") ||
-            errorText.includes("does not exist") ||
-            errorText.includes("invalid_model")));
+        // Immediate fail on authentication error
+        if (
+          res.status === 401 ||
+          res.status === 403 ||
+          errorText.includes("invalid_api_key") ||
+          errorText.includes("AuthenticationError")
+        ) {
+          throw lastError;
+        }
 
-      if (isModelError) {
-        continue;
-      }
+        // On 503, 429, or 502, backoff and retry once
+        if (res.status === 503 || res.status === 429 || res.status === 502) {
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+          break; // Move to next fallback model
+        }
 
-      throw lastError;
-    } catch (e: unknown) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      if (lastError.message.includes("401") || lastError.message.includes("403")) {
-        throw lastError; // Auth errors should fail fast without looping
+        // Model error: not found, decommissioned, or invalid model
+        const isModelError =
+          res.status === 404 ||
+          (res.status === 400 &&
+            (errorText.includes("model_not_found") ||
+              errorText.includes("model_decommissioned") ||
+              errorText.includes("does not exist") ||
+              errorText.includes("invalid_model") ||
+              errorText.includes("rate_limit") ||
+              errorText.includes("capacity")));
+
+        if (isModelError) {
+          break;
+        }
+
+        throw lastError;
+      } catch (e: unknown) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (
+          lastError.message.includes("401") ||
+          lastError.message.includes("403") ||
+          lastError.message.includes("invalid_api_key")
+        ) {
+          throw lastError;
+        }
       }
     }
   }
@@ -453,56 +512,80 @@ async function callAnthropicAPI(
     "claude-3-7-sonnet-20250219",
     "claude-3-5-sonnet-20241022",
     "claude-3-5-haiku-20241022",
-  ].filter((m, i, arr) => arr.indexOf(m) === i);
+  ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
   const url = "https://api.anthropic.com/v1/messages";
 
   for (const currentModel of modelsToTry) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: currentModel,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
-          max_tokens: 2500,
-          temperature: 0.2,
-        }),
-      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: currentModel,
+            system: systemPrompt,
+            messages: [{ role: "user", content: userPrompt }],
+            max_tokens: 2500,
+            temperature: 0.2,
+          }),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.content?.[0]?.text;
-        if (text) {
-          return { text, usedModel: currentModel };
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.content?.[0]?.text;
+          if (text) {
+            return { text, usedModel: currentModel };
+          }
         }
-      }
 
-      const errorText = await res.text();
-      lastError = new Error(`Anthropic API error (${res.status}): ${errorText}`);
+        const errorText = await res.text();
+        lastError = new Error(`Anthropic API error (${res.status}): ${errorText}`);
 
-      const isModelError =
-        res.status === 404 ||
-        (res.status === 400 &&
-          (errorText.includes("not_found_error") ||
-            errorText.includes("model") ||
-            errorText.includes("invalid_request_error")));
+        if (
+          res.status === 401 ||
+          res.status === 403 ||
+          errorText.includes("authentication_error")
+        ) {
+          throw lastError;
+        }
 
-      if (isModelError) {
-        continue;
-      }
+        // Retry on 529 (overloaded), 503, 429, or 502
+        if (res.status === 529 || res.status === 503 || res.status === 429 || res.status === 502) {
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+          break; // Move to next fallback model
+        }
 
-      throw lastError;
-    } catch (e: unknown) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      if (lastError.message.includes("401")) {
+        const isModelError =
+          res.status === 404 ||
+          (res.status === 400 &&
+            (errorText.includes("not_found_error") ||
+              errorText.includes("model") ||
+              errorText.includes("invalid_request_error") ||
+              errorText.includes("overloaded_error")));
+
+        if (isModelError) {
+          break;
+        }
+
         throw lastError;
+      } catch (e: unknown) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (
+          lastError.message.includes("401") ||
+          lastError.message.includes("403") ||
+          lastError.message.includes("authentication_error")
+        ) {
+          throw lastError;
+        }
       }
     }
   }

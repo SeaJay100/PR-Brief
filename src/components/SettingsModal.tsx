@@ -33,9 +33,9 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     defaultModel: "gemini-2.5-flash",
     models: [
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-      { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-      { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (fast & high availability)" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (stable alternative)" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (deep reasoning)" },
     ],
   },
   {
