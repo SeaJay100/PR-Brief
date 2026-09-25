@@ -25,10 +25,11 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 export const MODEL_REMAP_MAP: Record<string, string> = {
   // Google Gemini legacy models
   "gemini-1.5-flash": "gemini-2.5-flash",
-  "gemini-1.5-flash-8b": "gemini-2.0-flash-lite",
+  "gemini-1.5-flash-8b": "gemini-2.5-flash",
   "gemini-1.5-pro": "gemini-2.5-pro",
   "gemini-1.0-pro": "gemini-2.5-flash",
   "gemini-pro": "gemini-2.5-flash",
+  "gemini-2.0-flash-lite": "gemini-2.5-flash",
 
   // OpenAI legacy models
   "gpt-3.5-turbo": "gpt-4o-mini",
@@ -319,7 +320,6 @@ async function callGeminiAPI(
     sanitizedModel,
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
