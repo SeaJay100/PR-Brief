@@ -77,11 +77,18 @@ assert(resolveModernModel("gemini") === "gemini-2.5-flash", "Gemini default is g
 assert(resolveModernModel("gemini", "gemini-1.5-flash") === "gemini-2.5-flash", "Remaps legacy gemini-1.5-flash to gemini-2.5-flash");
 assert(resolveModernModel("gemini", "gemini-1.5-flash-8b") === "gemini-2.5-flash-lite", "Remaps legacy gemini-1.5-flash-8b to gemini-2.5-flash-lite");
 assert(resolveModernModel("gemini", "gemini-1.5-pro") === "gemini-2.5-pro", "Remaps legacy gemini-1.5-pro to gemini-2.5-pro");
-assert(resolveModernModel("gemini", "gemini-2.0-flash") === "gemini-2.0-flash", "Preserves active gemini-2.0-flash");
+assert(resolveModernModel("gemini", "gemini-2.0-flash") === "gemini-2.5-flash", "Remaps retired gemini-2.0-flash to gemini-2.5-flash");
+assert(resolveModernModel("gemini", "gemini-2.0-flash-lite") === "gemini-2.5-flash-lite", "Remaps retired gemini-2.0-flash-lite to gemini-2.5-flash-lite");
+assert(resolveModernModel("gemini", "gemini-2.0-pro-exp-02-05") === "gemini-2.5-pro", "Remaps gemini-2.0-pro wildcard to gemini-2.5-pro");
 assert(resolveModernModel("gemini", "gemini-2.5-flash-lite") === "gemini-2.5-flash-lite", "Preserves active gemini-2.5-flash-lite");
+assert(resolveModernModel("gemini", "gemini-3.5-flash") === "gemini-3.5-flash", "Preserves active gemini-3.5-flash");
 assert(resolveModernModel("openai") === "gpt-4o-mini", "OpenAI default is gpt-4o-mini");
 assert(resolveModernModel("openai", "gpt-3.5-turbo") === "gpt-4o-mini", "Remaps deprecated gpt-3.5-turbo");
+assert(resolveModernModel("openai", "gpt-4-turbo-preview") === "gpt-4o-mini", "Remaps gpt-4-turbo to gpt-4o-mini");
 assert(resolveModernModel("groq") === "llama-3.3-70b-versatile", "Groq default is llama-3.3-70b-versatile");
+assert(resolveModernModel("groq", "llama3-70b-8192") === "llama-3.3-70b-versatile", "Remaps llama3-70b-8192 to llama-3.3-70b-versatile");
 assert(resolveModernModel("anthropic") === "claude-3-7-sonnet-20250219", "Anthropic default is claude-3-7-sonnet");
+assert(resolveModernModel("anthropic", "claude-2.1") === "claude-3-7-sonnet-20250219", "Remaps claude-2.1 to claude-3-7-sonnet-20250219");
+assert(resolveModernModel("anthropic", "claude-3-opus-20240229") === "claude-3-7-sonnet-20250219", "Remaps claude-3-opus to claude-3-7-sonnet-20250219");
 
 console.log("\n🎉 ALL TESTS PASSED SUCCESSFULLY! 🎉\n");
