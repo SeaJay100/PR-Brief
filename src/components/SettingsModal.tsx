@@ -30,14 +30,12 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: "gemini",
     name: "Google Gemini",
-    desc: "Google's latest models including Gemini 3.8 Flash and Gemini 2.5 Flash.",
+    desc: "Google's latest models. gemini-2.5-flash is the recommended default.",
     defaultModel: "gemini-2.5-flash",
     models: [
-      { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash (latest generation)" },
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
-      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (fast & light)" },
-      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
       { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (deep reasoning)" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (compatible with all key tiers)" },
     ],
   },
   {
