@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X, Key, ShieldCheck, Eye, EyeOff, Check } from "lucide-react";
 import { AIProvider, AppSettings } from "@/types";
+import { resolveModernModel } from "@/lib/ai-service";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -33,9 +34,9 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     defaultModel: "gemini-2.5-flash",
     models: [
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-      { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-      { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (fast & light)" },
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (stable fallback)" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (deep reasoning)" },
     ],
   },
   {
@@ -115,12 +116,27 @@ export function SettingsModal({
   settings,
   onSaveSettings,
 }: SettingsModalProps) {
-  const [current, setCurrent] = useState<AppSettings>(settings);
+  const sanitizedSettings = React.useMemo(
+    () => ({
+      ...settings,
+      model: resolveModernModel(settings.provider, settings.model),
+    }),
+    [settings]
+  );
+
+  const [prevSettings, setPrevSettings] = useState(sanitizedSettings);
+  const [current, setCurrent] = useState<AppSettings>(sanitizedSettings);
   const [showApiKey, setShowApiKey] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
   const [useCustomModel, setUseCustomModel] = useState<boolean>(() =>
-    isCustomModel(settings.provider, settings.model)
+    isCustomModel(sanitizedSettings.provider, sanitizedSettings.model)
   );
+
+  if (prevSettings !== sanitizedSettings) {
+    setPrevSettings(sanitizedSettings);
+    setCurrent(sanitizedSettings);
+    setUseCustomModel(isCustomModel(sanitizedSettings.provider, sanitizedSettings.model));
+  }
 
   if (!isOpen) return null;
 
