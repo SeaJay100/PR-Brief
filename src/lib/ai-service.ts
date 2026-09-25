@@ -157,6 +157,7 @@ Category Breakdown: ${Object.entries(parsed.stats.categoryCounts)
     .map(([cat, count]) => `${cat} (${count})`)
     .join(", ")}
 
+${parsed.truncated ? `\n> ⚠️ Context Notice: This pull request diff is large and was partially truncated to preserve token space. Focus on the visible architecture, files, and commit logs.\n` : ""}
 ${commits ? `Commit Messages:\n${commits}\n\n` : ""}Files Changed:
 ${parsed.files.map((f) => `- ${f.path} (${f.status}, +${f.additions}/-${f.deletions})`).join("\n")}
 
@@ -268,10 +269,16 @@ export async function generateWithAI({
     let title = parsed.suggestedTitle || "PR: Updates and improvements";
     let markdown = rawOutput.trim();
 
-    const titleMatch = markdown.match(/^TITLE:\s*(.+)$/m);
+    // Strip outer markdown code blocks if the model wrapped the entire response in ```markdown ... ```
+    if (/^```(?:markdown)?\s*\n/i.test(markdown) && /\n```\s*$/i.test(markdown)) {
+      markdown = markdown.replace(/^```(?:markdown)?\s*\n/i, "").replace(/\n```\s*$/i, "").trim();
+    }
+
+    // Robust title extraction handling bolding, headings, quotes, and whitespace
+    const titleMatch = markdown.match(/^(?:#*\s*)?\*?\*?TITLE\*?\*?:\s*["']?([^"'\n\r]+)["']?$/im);
     if (titleMatch) {
       title = titleMatch[1].trim();
-      markdown = markdown.replace(/^TITLE:\s*.+$/m, "").trim();
+      markdown = markdown.replace(/^(?:#*\s*)?\*?\*?TITLE\*?\*?:\s*.+$/im, "").trim();
     }
 
     return {
@@ -319,14 +326,17 @@ async function callGeminiAPI(
 
   for (const currentModel of candidateModels) {
     const cleanModel = currentModel.replace(/^models\//, "").trim();
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+    // Use official endpoint without query key to avoid key leakage in error stack traces
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
 
-    // For transient errors (503/429), try up to 2 times with a backoff delay
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
           body: JSON.stringify({
             system_instruction: {
               parts: [{ text: systemPrompt }],
@@ -339,17 +349,34 @@ async function callGeminiAPI(
             ],
             generationConfig: {
               temperature: 0.2,
-              maxOutputTokens: 2500,
+              maxOutputTokens: 4000,
             },
           }),
+          signal: AbortSignal.timeout(30000),
         });
 
         if (res.ok) {
           const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          const candidateParts = data?.candidates?.[0]?.content?.parts || [];
+          // Extract text while ignoring internal reasoning/thought blocks (Gemini 2.5)
+          const text =
+            candidateParts
+              .filter((p: { text?: string; thought?: boolean }) => p.text && !p.thought)
+              .map((p: { text: string }) => p.text)
+              .join("\n")
+              .trim() ||
+            candidateParts
+              .map((p: { text?: string }) => p.text || "")
+              .join("\n")
+              .trim();
+
           if (text) {
             return { text, usedModel: cleanModel };
           }
+
+          const blockReason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason;
+          lastError = new Error(`Gemini response blocked or empty: ${blockReason || "no text candidates"}`);
+          break; // Move to next model in candidate list
         }
 
         const errorText = await res.text();
@@ -371,12 +398,12 @@ async function callGeminiAPI(
             await new Promise((resolve) => setTimeout(resolve, 1500));
             continue; // Retry this model once after delay
           }
-          break; // Move to the next model in candidateModels
+          break; // Move to next candidate model
         }
 
         if (res.status === 502 || res.status === 404 || res.status === 400) {
           lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
-          break; // Move to next model in candidateModels
+          break; // Move to next model
         }
 
         throw new Error(`Gemini API error (${res.status}): ${errorText}`);
@@ -416,8 +443,9 @@ async function callOpenAICompatibleAPI(
   ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
-  const cleanBase = baseUrl.replace(/\/$/, "");
-  const url = `${cleanBase}/chat/completions`;
+  const cleanBase = baseUrl.trim().replace(/\/$/, "");
+  const normalizedBase = /^https?:\/\//i.test(cleanBase) ? cleanBase : `https://${cleanBase}`;
+  const url = `${normalizedBase}/chat/completions`;
 
   for (const currentModel of modelsToTry) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -435,16 +463,21 @@ async function callOpenAICompatibleAPI(
               { role: "user", content: userPrompt },
             ],
             temperature: 0.2,
-            max_tokens: 2500,
+            max_tokens: 4000,
           }),
+          signal: AbortSignal.timeout(30000),
         });
 
         if (res.ok) {
           const data = await res.json();
           const text = data?.choices?.[0]?.message?.content;
-          if (text) {
-            return { text, usedModel: currentModel };
+          if (text && typeof text === "string" && text.trim().length > 0) {
+            return { text: text.trim(), usedModel: currentModel };
           }
+
+          const refusal = data?.choices?.[0]?.message?.refusal || "Empty response choices";
+          lastError = new Error(`${provider.toUpperCase()} returned no content: ${refusal}`);
+          break; // Move to next fallback model
         }
 
         const errorText = await res.text();
@@ -531,17 +564,27 @@ async function callAnthropicAPI(
             model: currentModel,
             system: systemPrompt,
             messages: [{ role: "user", content: userPrompt }],
-            max_tokens: 2500,
+            max_tokens: 4000,
             temperature: 0.2,
           }),
+          signal: AbortSignal.timeout(30000),
         });
 
         if (res.ok) {
           const data = await res.json();
-          const text = data?.content?.[0]?.text;
+          // Extract all text content blocks while ignoring thinking blocks (Claude 3.7)
+          const text = data?.content
+            ?.filter((c: { type: string; text?: string }) => c.type === "text" && Boolean(c.text))
+            ?.map((c: { text: string }) => c.text)
+            ?.join("\n")
+            ?.trim();
+
           if (text) {
             return { text, usedModel: currentModel };
           }
+
+          lastError = new Error(`Anthropic response contained no valid text blocks.`);
+          break; // Move to fallback model
         }
 
         const errorText = await res.text();
@@ -599,8 +642,9 @@ async function callOllamaAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ text: string; usedModel: string }> {
-  const cleanBase = baseUrl.replace(/\/$/, "");
-  const chatUrl = `${cleanBase}/api/chat`;
+  const cleanBase = baseUrl.trim().replace(/\/$/, "");
+  const normalizedBase = /^https?:\/\//i.test(cleanBase) ? cleanBase : `http://${cleanBase}`;
+  const chatUrl = `${normalizedBase}/api/chat`;
 
   // First try the requested model
   try {
@@ -615,20 +659,23 @@ async function callOllamaAPI(
         ],
         stream: false,
       }),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (res.ok) {
       const data = await res.json();
       const text = data?.message?.content;
       if (text) {
-        return { text, usedModel: model };
+        return { text: text.trim(), usedModel: model };
       }
     }
 
     // If model not found, query Ollama's local tags to discover an installed model
     if (res.status === 404) {
       try {
-        const tagsRes = await fetch(`${cleanBase}/api/tags`);
+        const tagsRes = await fetch(`${normalizedBase}/api/tags`, {
+          signal: AbortSignal.timeout(10000),
+        });
         if (tagsRes.ok) {
           const tagsData = await tagsRes.json();
           const availableModels: string[] = tagsData?.models?.map((m: { name?: string }) => m.name) || [];
@@ -645,12 +692,13 @@ async function callOllamaAPI(
                 ],
                 stream: false,
               }),
+              signal: AbortSignal.timeout(30000),
             });
             if (retryRes.ok) {
               const retryData = await retryRes.json();
               const text = retryData?.message?.content;
               if (text) {
-                return { text, usedModel: localModel };
+                return { text: text.trim(), usedModel: localModel };
               }
             }
           }
@@ -663,6 +711,9 @@ async function callOllamaAPI(
     const errorText = await res.text();
     throw new Error(`Ollama API error (${res.status}): ${errorText}`);
   } catch (err: unknown) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(`Ollama request timed out after 30s. Ensure Ollama is running and responsive at ${normalizedBase}`);
+    }
     throw err instanceof Error ? err : new Error(String(err));
   }
 }
