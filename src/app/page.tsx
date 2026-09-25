@@ -1,69 +1,247 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useEffect, useCallback } from "react";
+import { Header } from "@/components/Header";
+import { DiffInputPanel } from "@/components/DiffInputPanel";
+import { StatsBar } from "@/components/StatsBar";
+import { OutputPanel } from "@/components/OutputPanel";
+import { SettingsModal } from "@/components/SettingsModal";
+import { useToast } from "@/components/Toast";
+import { parseGitDiff } from "@/lib/diff-parser";
+import { SAMPLE_PRESETS } from "@/lib/sample-diffs";
+import {
+  AppSettings,
+  GenerateResponse,
+  PRTemplate,
+  PRTone,
+  SampleDiffPreset,
+} from "@/types";
+
+const DEFAULT_SETTINGS: AppSettings = {
+  provider: "smart-parser",
+  apiKey: "",
+  model: "Rule-Based AST",
+  baseUrl: "",
+};
 
 export default function Home() {
+  const { toast } = useToast();
+
+  // Input states
+  const [diff, setDiff] = useState("");
+  const [commits, setCommits] = useState("");
+  const [template, setTemplate] = useState<PRTemplate>("standard");
+  const [tone, setTone] = useState<PRTone>("technical");
+
+  // Output states
+  const [generatedTitle, setGeneratedTitle] = useState("");
+  const [generatedMarkdown, setGeneratedMarkdown] = useState("");
+  const [providerUsed, setProviderUsed] = useState("");
+  const [modelUsed, setModelUsed] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Settings & modal
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("pr_brief_settings");
+        if (saved) {
+          return JSON.parse(saved);
+        }
+      } catch (e) {
+        console.warn("Failed to load settings from localStorage", e);
+      }
+    }
+    return DEFAULT_SETTINGS;
+  });
+
+  const handleSaveSettings = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    try {
+      localStorage.setItem("pr_brief_settings", JSON.stringify(newSettings));
+      toast({
+        type: "success",
+        title: "Settings Saved",
+        message: `Provider set to ${newSettings.provider}`,
+      });
+    } catch (e) {
+      console.warn("Failed to save settings to localStorage", e);
+    }
+  };
+
+  // Real-time pre-AI parsing derived state
+  const parsedDiff = React.useMemo(() => {
+    if (!diff || !diff.trim()) return null;
+    return parseGitDiff(diff, commits);
+  }, [diff, commits]);
+
+  const parsedStats = parsedDiff?.stats ?? null;
+  const parsedFiles = parsedDiff?.files ?? [];
+  const isTruncated = parsedDiff?.truncated ?? false;
+
+  // Handle Preset Selection
+  const handleSelectPreset = useCallback(
+    (preset: SampleDiffPreset) => {
+      setDiff(preset.diff);
+      setCommits(preset.commits);
+      setTemplate(preset.template);
+      setTone(preset.tone);
+      setGeneratedTitle(preset.suggestedTitle);
+
+      toast({
+        type: "info",
+        title: `Loaded: ${preset.name}`,
+        message: "Sample diff and commit history populated.",
+      });
+    },
+    [toast]
+  );
+
+  // Generate Brief Handler
+  const handleGenerate = useCallback(
+    async (overrideTemplate?: PRTemplate) => {
+      if (!diff || !diff.trim()) {
+        toast({
+          type: "error",
+          title: "Missing Diff",
+          message: "Please paste a git diff or select a sample preset first.",
+        });
+        return;
+      }
+
+      const activeTemplate = overrideTemplate || template;
+      setIsLoading(true);
+      setWarnings([]);
+
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            diff,
+            commits,
+            template: activeTemplate,
+            tone,
+            provider: settings.provider,
+            apiKey: settings.apiKey,
+            model: settings.model,
+            baseUrl: settings.baseUrl,
+          }),
+        });
+
+        const data: GenerateResponse = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Failed to generate PR brief");
+        }
+
+        setGeneratedTitle(data.title);
+        setGeneratedMarkdown(data.markdown);
+        setProviderUsed(data.providerUsed);
+        setModelUsed(data.modelUsed || "");
+        if (data.warnings && data.warnings.length > 0) {
+          setWarnings(data.warnings);
+        }
+
+        toast({
+          type: "success",
+          title: "PR Brief Generated!",
+          message: `${data.stats.totalFiles} files analyzed with ${data.providerUsed}`,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "An unexpected error occurred.";
+        toast({
+          type: "error",
+          title: "Generation Failed",
+          message,
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [diff, commits, template, tone, settings, toast]
+  );
+
+  // Export as Release Note
+  const handleExportReleaseNotes = useCallback(() => {
+    setTemplate("release-notes");
+    handleGenerate("release-notes");
+  }, [handleGenerate]);
+
+  // Keyboard shortcut Ctrl+Enter / Cmd+Enter
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleGenerate();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleGenerate]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Top Navigation */}
+      <Header
+        settings={settings}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onSelectPreset={handleSelectPreset}
+      />
+
+      {/* Main Workspace Layout */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-4">
+        {/* Pre-AI Parsed Metrics & Categories Bar */}
+        <StatsBar
+          stats={parsedStats}
+          files={parsedFiles}
+          suggestedTitle={generatedTitle}
+          isTruncated={isTruncated}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Split Grid: Left Input, Right Output */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[600px]">
+          {/* Left Panel: Diff & Configuration Input */}
+          <DiffInputPanel
+            diff={diff}
+            onChangeDiff={setDiff}
+            commits={commits}
+            onChangeCommits={setCommits}
+            template={template}
+            onChangeTemplate={setTemplate}
+            tone={tone}
+            onChangeTone={setTone}
+            onGenerate={() => handleGenerate()}
+            isLoading={isLoading}
+            settings={settings}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+
+          {/* Right Panel: Markdown Preview & Export */}
+          <OutputPanel
+            title={generatedTitle}
+            markdown={generatedMarkdown}
+            onChangeMarkdown={setGeneratedMarkdown}
+            isLoading={isLoading}
+            onRegenerate={() => handleGenerate()}
+            onExportReleaseNotes={handleExportReleaseNotes}
+            providerUsed={providerUsed}
+            modelUsed={modelUsed}
+            warnings={warnings}
+            onLoadSample={() => handleSelectPreset(SAMPLE_PRESETS[0])}
+          />
         </div>
       </main>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
+      />
     </div>
   );
 }
