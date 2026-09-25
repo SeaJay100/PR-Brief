@@ -24,12 +24,6 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
   // Google Gemini legacy models
-  "gemini-2.0-flash": "gemini-2.5-flash",
-  "gemini-2.0-flash-001": "gemini-2.5-flash",
-  "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
-  "gemini-2.0-flash-lite-001": "gemini-2.5-flash-lite",
-  "gemini-2.0-pro": "gemini-2.5-pro",
-  "gemini-2.0-pro-exp-02-05": "gemini-2.5-pro",
   "gemini-1.5-flash": "gemini-2.5-flash",
   "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
   "gemini-1.5-pro": "gemini-2.5-pro",
@@ -317,7 +311,7 @@ async function callGeminiAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ text: string; usedModel: string }> {
-  // Never attempt deprecated 1.x or 2.0 models. Filter them out immediately.
+  // Never attempt deprecated 1.5 or 1.0 models. Filter them out immediately.
   const cleanInput = model.replace(/^models\//, "").trim();
   const sanitizedModel = MODEL_REMAP_MAP[cleanInput] || cleanInput;
 
@@ -325,14 +319,12 @@ async function callGeminiAPI(
     sanitizedModel,
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-2.5-pro",
+    "gemini-2.0-flash",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
       !m.includes("1.5") &&
       !m.includes("1.0") &&
-      !m.includes("2.0") &&
       !m.includes("pro-vision")
   );
 
