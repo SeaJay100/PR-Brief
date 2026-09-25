@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
           {
             error: `GitHub API error (${diffRes.status}): ${
               diffRes.status === 404
-                ? "Pull request not found or repository is private. Provide a GitHub Personal Access Token if it is private."
+                ? "Pull request not found or repository is private. If private, please provide a GitHub Personal Access Token (PAT) with 'repo' scope."
                 : errorText
             }`,
           },
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
           const commitsData = await commitsRes.json();
           if (Array.isArray(commitsData)) {
             commitsText = commitsData
-              .map((c) => {
+              .map((c: { sha?: string; commit?: { message?: string } }) => {
                 const sha = (c.sha || "").slice(0, 7);
                 const msg = (c.commit?.message || "").split("\n")[0];
                 return `${sha} ${msg}`;
@@ -115,7 +115,26 @@ export async function POST(req: NextRequest) {
 
     if (compareMatch) {
       const [, owner, repo, rawRange] = compareMatch;
-      const range = rawRange.split("?")[0].split("#")[0].trim();
+      let range = rawRange.split("?")[0].split("#")[0].trim();
+
+      // If user pasted a single branch like "compare/feature", auto-detect default branch (e.g. "main...feature")
+      if (!range.includes("...") && !range.includes("..")) {
+        try {
+          const repoRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}`,
+            { headers }
+          );
+          if (repoRes.ok) {
+            const repoData = await repoRes.json();
+            const defaultBranch = repoData.default_branch || "main";
+            range = `${defaultBranch}...${range}`;
+          } else {
+            range = `main...${range}`;
+          }
+        } catch {
+          range = `main...${range}`;
+        }
+      }
 
       const diffRes = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/compare/${range}`,
@@ -130,7 +149,7 @@ export async function POST(req: NextRequest) {
       if (!diffRes.ok) {
         return NextResponse.json(
           {
-            error: `GitHub API error (${diffRes.status}): Comparison '${range}' not found or repository is private. Ensure the branches exist on '${owner}/${repo}', and provide a GitHub Personal Access Token if the repo is private.`,
+            error: `GitHub API error (${diffRes.status}): Comparison '${range}' not found or repository is private. Ensure both branches exist on '${owner}/${repo}', and provide a GitHub Personal Access Token if the repo is private.`,
           },
           { status: diffRes.status }
         );
