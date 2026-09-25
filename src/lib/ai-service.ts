@@ -24,12 +24,6 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
   // Google Gemini legacy models
-  "gemini-2.0-flash": "gemini-2.5-flash",
-  "gemini-2.0-flash-001": "gemini-2.5-flash",
-  "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
-  "gemini-2.0-flash-lite-001": "gemini-2.5-flash-lite",
-  "gemini-2.0-pro": "gemini-2.5-pro",
-  "gemini-2.0-pro-exp-02-05": "gemini-2.5-pro",
   "gemini-1.5-flash": "gemini-2.5-flash",
   "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
   "gemini-1.5-pro": "gemini-2.5-pro",
@@ -39,10 +33,9 @@ export const MODEL_REMAP_MAP: Record<string, string> = {
   // OpenAI legacy models
   "gpt-3.5-turbo": "gpt-4o-mini",
   "gpt-3.5-turbo-16k": "gpt-4o-mini",
-  "gpt-4-turbo": "gpt-4o-mini",
-  "gpt-4-turbo-preview": "gpt-4o-mini",
-  "gpt-4-1106-preview": "gpt-4o-mini",
-  "gpt-4-0125-preview": "gpt-4o-mini",
+  "gpt-4-turbo-preview": "gpt-4o",
+  "gpt-4-1106-preview": "gpt-4o",
+  "gpt-4-0125-preview": "gpt-4o",
 
   // Groq legacy models
   "llama3-8b-8192": "llama-3.3-70b-versatile",
@@ -53,8 +46,8 @@ export const MODEL_REMAP_MAP: Record<string, string> = {
   // Anthropic legacy models
   "claude-3-sonnet-20240229": "claude-3-7-sonnet-20250219",
   "claude-3-opus-20240229": "claude-3-7-sonnet-20250219",
-  "claude-2.1": "claude-3-7-sonnet-20250219",
-  "claude-2.0": "claude-3-7-sonnet-20250219",
+  "claude-2.1": "claude-3-5-haiku-20241022",
+  "claude-2.0": "claude-3-5-haiku-20241022",
 };
 
 export function resolveModernModel(provider: AIProvider, inputModel?: string): string {
@@ -63,35 +56,7 @@ export function resolveModernModel(provider: AIProvider, inputModel?: string): s
     return defaultModel;
   }
   const clean = inputModel.trim().replace(/^models\//, "");
-  if (MODEL_REMAP_MAP[clean]) {
-    return MODEL_REMAP_MAP[clean];
-  }
-
-  // Google Gemini legacy / sunset pattern remaps
-  if (provider === "gemini") {
-    if (/gemini-(1\.5|2\.0)-pro/i.test(clean)) return "gemini-2.5-pro";
-    if (/gemini-(1\.5-flash-8b|2\.0-flash-lite)/i.test(clean)) return "gemini-2.5-flash-lite";
-    if (/(1\.[05]|2\.0|pro-vision)/i.test(clean)) return "gemini-2.5-flash";
-  }
-
-  // OpenAI legacy pattern remaps
-  if (provider === "openai") {
-    if (/^gpt-3\.5/i.test(clean) || /^gpt-4-turbo/i.test(clean)) return "gpt-4o-mini";
-  }
-
-  // Groq legacy pattern remaps
-  if (provider === "groq") {
-    if (/^llama3-(8b|70b)/i.test(clean) || /^mixtral/i.test(clean)) return "llama-3.3-70b-versatile";
-  }
-
-  // Anthropic legacy pattern remaps
-  if (provider === "anthropic") {
-    if (/^claude-2/i.test(clean) || /^claude-3-sonnet/i.test(clean) || /^claude-3-opus/i.test(clean)) {
-      return "claude-3-7-sonnet-20250219";
-    }
-  }
-
-  return clean;
+  return MODEL_REMAP_MAP[clean] || clean;
 }
 
 export function constructPrompt(
@@ -346,7 +311,7 @@ async function callGeminiAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ text: string; usedModel: string }> {
-  // Never attempt deprecated 1.x or 2.0 models. Filter them out immediately.
+  // Never attempt deprecated 1.5 or 1.0 models. Filter them out immediately.
   const cleanInput = model.replace(/^models\//, "").trim();
   const sanitizedModel = MODEL_REMAP_MAP[cleanInput] || cleanInput;
 
@@ -354,14 +319,12 @@ async function callGeminiAPI(
     sanitizedModel,
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-2.5-pro",
+    "gemini-2.0-flash",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
       !m.includes("1.5") &&
       !m.includes("1.0") &&
-      !m.includes("2.0") &&
       !m.includes("pro-vision")
   );
 
