@@ -373,7 +373,6 @@ async function callGeminiAPI(
   );
 
   let lastError: Error | null = null;
-  let primaryError: Error | null = null;
 
   for (const currentModel of candidateModels) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent`;
@@ -419,13 +418,11 @@ async function callGeminiAPI(
 
           const safetyReason = data?.candidates?.[0]?.finishReason;
           lastError = new Error(`Gemini response had no text content (finishReason: ${safetyReason || "UNKNOWN"})`);
-          if (!primaryError) primaryError = lastError;
           break; // Move to next fallback model
         }
 
         const errorText = await res.text();
         lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
-        if (!primaryError) primaryError = lastError;
 
         // Auth errors (invalid API key) should fail immediately without trying other models
         if (
@@ -452,7 +449,6 @@ async function callGeminiAPI(
         throw lastError;
       } catch (e: unknown) {
         lastError = e instanceof Error ? e : new Error(String(e));
-        if (!primaryError) primaryError = lastError;
         if (
           lastError.message.includes("API_KEY_INVALID") ||
           lastError.message.includes("API key not valid")
@@ -463,7 +459,7 @@ async function callGeminiAPI(
     }
   }
 
-  throw primaryError || lastError || new Error("Failed to generate with Gemini API");
+  throw lastError || new Error("Failed to generate with Gemini API");
 }
 
 async function callOpenAICompatibleAPI(
