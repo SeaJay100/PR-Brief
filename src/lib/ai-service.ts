@@ -40,7 +40,6 @@ export const MODEL_REMAP_MAP: Record<string, string> = {
   "llama3-8b-8192": "llama-3.3-70b-versatile",
   "llama3-70b-8192": "llama-3.3-70b-versatile",
   "llama-3.1-70b-versatile": "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant": "llama-3.3-70b-versatile",
   "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
 
   // Anthropic
@@ -231,7 +230,7 @@ export async function generateWithAI({
       const res = await callGeminiAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
       rawOutput = res.text;
       if (res.usedModel !== modelName) {
-        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        warnings.push(`Model '${modelName}' was under high demand or unavailable; automatically resolved to '${res.usedModel}'.`);
         modelName = res.usedModel;
       }
     } else if (provider === "openai" || provider === "groq") {
@@ -246,21 +245,21 @@ export async function generateWithAI({
       );
       rawOutput = res.text;
       if (res.usedModel !== modelName) {
-        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        warnings.push(`Model '${modelName}' was rate-limited or unavailable; automatically resolved to '${res.usedModel}'.`);
         modelName = res.usedModel;
       }
     } else if (provider === "anthropic") {
       const res = await callAnthropicAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
       rawOutput = res.text;
       if (res.usedModel !== modelName) {
-        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        warnings.push(`Model '${modelName}' was overloaded or unavailable; automatically resolved to '${res.usedModel}'.`);
         modelName = res.usedModel;
       }
     } else if (provider === "ollama") {
       const res = await callOllamaAPI(baseUrl || "http://localhost:11434", modelName, systemPrompt, userPrompt);
       rawOutput = res.text;
       if (res.usedModel !== modelName) {
-        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to '${res.usedModel}'.`);
+        warnings.push(`Model '${modelName}' was unavailable; automatically resolved to installed local model '${res.usedModel}'.`);
         modelName = res.usedModel;
       }
     }
@@ -309,6 +308,8 @@ async function callGeminiAPI(
     model,
     "gemini-2.5-flash",
     "gemini-1.5-flash",
+    "gemini-2.5-pro",
+    "gemini-1.5-pro",
   ].filter((m, i, arr) => arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
@@ -346,20 +347,38 @@ async function callGeminiAPI(
         }
       }
 
-      // If model not found or deprecated, try next model in chain
-      if (res.status === 404 || res.status === 400) {
-        const errorText = await res.text();
+      const errorText = await res.text();
+
+      // If invalid API key, fail immediately
+      if (
+        res.status === 400 &&
+        (errorText.includes("API_KEY_INVALID") || errorText.includes("API key not valid"))
+      ) {
+        throw new Error(`Gemini API error (${res.status}): ${errorText}`);
+      }
+
+      // If model is under high demand (503), rate-limited (429), gateway error (502), not found (404), or invalid (400), try next model in chain
+      if (
+        res.status === 503 ||
+        res.status === 429 ||
+        res.status === 502 ||
+        res.status === 404 ||
+        res.status === 400
+      ) {
         lastError = new Error(`Gemini API error (${res.status}): ${errorText}`);
         continue;
       }
 
-      const errorText = await res.text();
       throw new Error(`Gemini API error (${res.status}): ${errorText}`);
     } catch (e: unknown) {
-      if (e instanceof Error && !e.message.includes("404")) {
-        throw e;
-      }
       lastError = e instanceof Error ? e : new Error(String(e));
+      if (
+        lastError.message.includes("401") ||
+        lastError.message.includes("403") ||
+        lastError.message.includes("API_KEY_INVALID")
+      ) {
+        throw lastError; // Auth errors fail fast
+      }
     }
   }
 
@@ -376,11 +395,13 @@ async function callOpenAICompatibleAPI(
 ): Promise<{ text: string; usedModel: string }> {
   const defaultFallback = provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
   const secondaryFallback = provider === "groq" ? "llama-3.1-8b-instant" : "gpt-4o";
+  const tertiaryFallback = provider === "groq" ? "gemma2-9b-it" : "gpt-4.1-mini";
 
   const modelsToTry = [
     model,
     defaultFallback,
     secondaryFallback,
+    tertiaryFallback,
   ].filter((m, i, arr) => arr.indexOf(m) === i);
 
   let lastError: Error | null = null;
@@ -417,23 +438,42 @@ async function callOpenAICompatibleAPI(
       const errorText = await res.text();
       lastError = new Error(`${provider.toUpperCase()} API error (${res.status}): ${errorText}`);
 
-      // If model not found or decommissioned, try next fallback model
-      const isModelError =
+      // Check for immediate authentication errors
+      if (
+        res.status === 401 ||
+        res.status === 403 ||
+        errorText.includes("invalid_api_key") ||
+        errorText.includes("AuthenticationError")
+      ) {
+        throw lastError;
+      }
+
+      // If model not found, overloaded (503), rate-limited (429), bad gateway (502), or model decommissioned/unavailable (400/404), try next fallback model
+      const isRetryableError =
+        res.status === 503 ||
+        res.status === 429 ||
+        res.status === 502 ||
         res.status === 404 ||
         (res.status === 400 &&
           (errorText.includes("model_not_found") ||
             errorText.includes("model_decommissioned") ||
             errorText.includes("does not exist") ||
-            errorText.includes("invalid_model")));
+            errorText.includes("invalid_model") ||
+            errorText.includes("rate_limit") ||
+            errorText.includes("capacity")));
 
-      if (isModelError) {
+      if (isRetryableError) {
         continue;
       }
 
       throw lastError;
     } catch (e: unknown) {
       lastError = e instanceof Error ? e : new Error(String(e));
-      if (lastError.message.includes("401") || lastError.message.includes("403")) {
+      if (
+        lastError.message.includes("401") ||
+        lastError.message.includes("403") ||
+        lastError.message.includes("invalid_api_key")
+      ) {
         throw lastError; // Auth errors should fail fast without looping
       }
     }
@@ -487,21 +527,40 @@ async function callAnthropicAPI(
       const errorText = await res.text();
       lastError = new Error(`Anthropic API error (${res.status}): ${errorText}`);
 
-      const isModelError =
+      // Fail fast on auth errors
+      if (
+        res.status === 401 ||
+        res.status === 403 ||
+        errorText.includes("authentication_error")
+      ) {
+        throw lastError;
+      }
+
+      // Retry on overload (529), service unavailable (503), rate limit (429), gateway error (502), not found (404), or model errors
+      const isRetryableError =
+        res.status === 529 ||
+        res.status === 503 ||
+        res.status === 429 ||
+        res.status === 502 ||
         res.status === 404 ||
         (res.status === 400 &&
           (errorText.includes("not_found_error") ||
             errorText.includes("model") ||
-            errorText.includes("invalid_request_error")));
+            errorText.includes("invalid_request_error") ||
+            errorText.includes("overloaded_error")));
 
-      if (isModelError) {
+      if (isRetryableError) {
         continue;
       }
 
       throw lastError;
     } catch (e: unknown) {
       lastError = e instanceof Error ? e : new Error(String(e));
-      if (lastError.message.includes("401")) {
+      if (
+        lastError.message.includes("401") ||
+        lastError.message.includes("403") ||
+        lastError.message.includes("authentication_error")
+      ) {
         throw lastError;
       }
     }

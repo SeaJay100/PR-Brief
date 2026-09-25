@@ -1,6 +1,6 @@
 import { categorizeFilePath, isLockfilePath, parseGitDiff } from "../src/lib/diff-parser";
 import { generateRuleBasedBrief } from "../src/lib/rule-based-generator";
-import { constructPrompt } from "../src/lib/ai-service";
+import { constructPrompt, resolveModernModel } from "../src/lib/ai-service";
 import { SAMPLE_PRESETS } from "../src/lib/sample-diffs";
 
 function assert(condition: boolean, message: string) {
@@ -71,5 +71,15 @@ const singleParsed = parseGitDiff(singleLineDiff);
 assert(singleParsed.files.length === 1, "Fallback parser handles unified diff");
 assert(singleParsed.stats.totalAdditions === 1, "Single line additions count 1");
 assert(singleParsed.stats.totalDeletions === 1, "Single line deletions count 1");
+
+console.log("\n=== 5. Testing Multi-Provider Model Fallbacks & Remappings ===");
+assert(resolveModernModel("gemini") === "gemini-2.5-flash", "Gemini default is gemini-2.5-flash");
+assert(resolveModernModel("gemini", "gemini-2.0-flash") === "gemini-2.5-flash", "Remaps deprecated gemini-2.0-flash");
+assert(resolveModernModel("gemini", "gemini-1.5-flash") === "gemini-1.5-flash", "Preserves active gemini-1.5-flash");
+assert(resolveModernModel("openai") === "gpt-4o-mini", "OpenAI default is gpt-4o-mini");
+assert(resolveModernModel("openai", "gpt-3.5-turbo") === "gpt-4o-mini", "Remaps deprecated gpt-3.5-turbo");
+assert(resolveModernModel("groq") === "llama-3.3-70b-versatile", "Groq default is llama-3.3-70b-versatile");
+assert(resolveModernModel("groq", "llama-3.1-8b-instant") === "llama-3.1-8b-instant", "Preserves active Groq llama-3.1-8b-instant");
+assert(resolveModernModel("anthropic") === "claude-3-7-sonnet-20250219", "Anthropic default is claude-3-7-sonnet");
 
 console.log("\n🎉 ALL TESTS PASSED SUCCESSFULLY! 🎉\n");
