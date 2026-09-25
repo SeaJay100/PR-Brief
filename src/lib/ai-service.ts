@@ -24,13 +24,14 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 // Known deprecated or legacy models mapped to their modern, active successors across all providers
 export const MODEL_REMAP_MAP: Record<string, string> = {
   // Google Gemini — deprecated / retired models
-  "gemini-1.0-pro": "gemini-2.5-flash",
-  "gemini-pro": "gemini-2.5-flash",
-  "gemini-1.5-flash": "gemini-2.5-flash",
-  "gemini-1.5-flash-8b": "gemini-2.5-flash",
+  // NOTE: gemini-2.5-flash is unavailable on older API key tiers; those requests
+  // fall through the candidate chain to gemini-2.0-flash automatically.
+  "gemini-1.0-pro": "gemini-2.0-flash",
+  "gemini-pro": "gemini-2.0-flash",
+  "gemini-1.5-flash": "gemini-2.0-flash",
+  "gemini-1.5-flash-8b": "gemini-2.0-flash",
   "gemini-1.5-pro": "gemini-2.5-pro",
-  "gemini-2.0-flash-lite": "gemini-2.5-flash",
-  "gemini-2.0-flash": "gemini-2.5-flash",
+  "gemini-2.0-flash-lite": "gemini-2.0-flash",
 
   // OpenAI — deprecated / retired models
   "gpt-4": "gpt-4.1",
@@ -330,10 +331,12 @@ async function callGeminiAPI(
   const cleanInput = model.replace(/^models\//, "").trim();
   const sanitizedModel = MODEL_REMAP_MAP[cleanInput] || cleanInput;
 
+  // Candidate order: try user-selected model first, then 2.5-flash (new-tier keys),
+  // then 2.0-flash (works on all key tiers including older accounts).
   const candidateModels = [
     sanitizedModel,
     "gemini-2.5-flash",
-    "gemini-2.5-pro",
+    "gemini-2.0-flash",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
