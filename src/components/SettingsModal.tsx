@@ -30,12 +30,12 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: "gemini",
     name: "Google Gemini",
-    desc: "Fast, high-quality generation with Google's latest Gemini 2.5 Flash model.",
+    desc: "Fast, high-quality generation with Google's latest Gemini 2.5 Flash and Gemini 3.5 Flash models.",
     defaultModel: "gemini-2.5-flash",
     models: [
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
       { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (fast & light)" },
-      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (stable fallback)" },
+      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (fast & smart)" },
       { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (deep reasoning)" },
     ],
   },
