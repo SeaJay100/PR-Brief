@@ -24,10 +24,9 @@ export async function POST(req: NextRequest) {
       "User-Agent": "PR-Brief-App",
     };
 
-    const rawToken = (typeof token === "string" ? token : process.env.GITHUB_TOKEN || "").trim();
-    if (rawToken) {
-      const cleanToken = rawToken.replace(/^(Bearer|token)\s+/i, "").trim();
-      headers["Authorization"] = `Bearer ${cleanToken}`;
+    const authToken = token || process.env.GITHUB_TOKEN;
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
     }
 
     if (prMatch) {
@@ -49,7 +48,7 @@ export async function POST(req: NextRequest) {
           {
             error: `GitHub API error (${diffRes.status}): ${
               diffRes.status === 404
-                ? "Pull request not found or repository is private. If private, please provide a GitHub Personal Access Token (PAT) with 'repo' scope."
+                ? "Pull request not found or repository is private. Provide a GitHub Personal Access Token if it is private."
                 : errorText
             }`,
           },
@@ -90,7 +89,7 @@ export async function POST(req: NextRequest) {
           const commitsData = await commitsRes.json();
           if (Array.isArray(commitsData)) {
             commitsText = commitsData
-              .map((c: { sha?: string; commit?: { message?: string } }) => {
+              .map((c) => {
                 const sha = (c.sha || "").slice(0, 7);
                 const msg = (c.commit?.message || "").split("\n")[0];
                 return `${sha} ${msg}`;
@@ -114,27 +113,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (compareMatch) {
-      const [, owner, repo, rawRange] = compareMatch;
-      let range = rawRange.split("?")[0].split("#")[0].trim();
-
-      // If user pasted a single branch like "compare/feature", auto-detect default branch (e.g. "main...feature")
-      if (!range.includes("...") && !range.includes("..")) {
-        try {
-          const repoRes = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}`,
-            { headers }
-          );
-          if (repoRes.ok) {
-            const repoData = await repoRes.json();
-            const defaultBranch = repoData.default_branch || "main";
-            range = `${defaultBranch}...${range}`;
-          } else {
-            range = `main...${range}`;
-          }
-        } catch {
-          range = `main...${range}`;
-        }
-      }
+      const [, owner, repo, range] = compareMatch;
 
       const diffRes = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/compare/${range}`,
@@ -149,47 +128,20 @@ export async function POST(req: NextRequest) {
       if (!diffRes.ok) {
         return NextResponse.json(
           {
-            error: `GitHub API error (${diffRes.status}): Comparison '${range}' not found or repository is private. Ensure both branches exist on '${owner}/${repo}', and provide a GitHub Personal Access Token if the repo is private.`,
+            error: `GitHub API error (${diffRes.status}): Comparison not found or repository is private.`,
           },
           { status: diffRes.status }
         );
       }
 
       const diff = await diffRes.text();
-      let commitsText = "";
-
-      try {
-        const metaRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/compare/${range}`,
-          {
-            headers: {
-              ...headers,
-              Accept: "application/vnd.github.v3+json",
-            },
-          }
-        );
-        if (metaRes.ok) {
-          const metaData = await metaRes.json();
-          if (Array.isArray(metaData.commits)) {
-            commitsText = metaData.commits
-              .map((c: { sha?: string; commit?: { message?: string } }) => {
-                const sha = (c.sha || "").slice(0, 7);
-                const msg = (c.commit?.message || "").split("\n")[0];
-                return `${sha} ${msg}`;
-              })
-              .join("\n");
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to fetch compare metadata:", e);
-      }
 
       return NextResponse.json({
         success: true,
         owner,
         repo,
         diff,
-        commits: commitsText,
+        commits: "",
       });
     }
 
@@ -200,11 +152,10 @@ export async function POST(req: NextRequest) {
       },
       { status: 400 }
     );
-  } catch (err: unknown) {
+  } catch (err: any) {
     console.error("[GITHUB_FETCH_ERROR]", err);
-    const message = err instanceof Error ? err.message : "Failed to fetch from GitHub.";
     return NextResponse.json(
-      { error: message },
+      { error: err.message || "Failed to fetch from GitHub." },
       { status: 500 }
     );
   }
