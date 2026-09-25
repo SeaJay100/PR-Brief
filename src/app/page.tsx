@@ -16,7 +16,7 @@ import {
   PRTone,
   SampleDiffPreset,
 } from "@/types";
-import { MODEL_REMAP_MAP } from "@/lib/ai-service";
+import { resolveModernModel } from "@/lib/ai-service";
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "smart-parser",
@@ -51,9 +51,12 @@ export default function Home() {
         if (saved) {
           const parsed = JSON.parse(saved);
           let changed = false;
-          if (parsed.model && MODEL_REMAP_MAP[parsed.model]) {
-            parsed.model = MODEL_REMAP_MAP[parsed.model];
-            changed = true;
+          if (parsed.model) {
+            const modern = resolveModernModel(parsed.provider, parsed.model);
+            if (modern !== parsed.model) {
+              parsed.model = modern;
+              changed = true;
+            }
           }
           if (changed) {
             localStorage.setItem("pr_brief_settings", JSON.stringify(parsed));
