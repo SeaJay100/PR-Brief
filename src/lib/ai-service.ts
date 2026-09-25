@@ -163,6 +163,9 @@ export async function generateBriefWithProvider(
 
     if (provider === "gemini") {
       modelName = model || "gemini-2.5-flash";
+      if (modelName === "gemini-2.0-flash" || modelName === "gemini-2.0-flash-lite") {
+        modelName = "gemini-2.5-flash";
+      }
       rawOutput = await callGeminiAPI(effectiveKey!, modelName, systemPrompt, userPrompt);
     } else if (provider === "openai") {
       modelName = model || "gpt-4o-mini";
@@ -225,9 +228,14 @@ async function callGeminiAPI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  let cleanModel = model.replace(/^models\//, "").trim();
+  if (cleanModel === "gemini-2.0-flash" || cleanModel === "gemini-2.0-flash-lite") {
+    cleanModel = "gemini-2.5-flash";
+  }
 
-  const res = await fetch(url, {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent?key=${apiKey}`;
+
+  let res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -246,6 +254,34 @@ async function callGeminiAPI(
       },
     }),
   });
+
+  // If 404 (model deprecated or not found), attempt automatic fallback to gemini-2.5-flash
+  if (res.status === 404 && cleanModel !== "gemini-2.5-flash") {
+    const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const fallbackRes = await fetch(fallbackUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2500,
+        },
+      }),
+    });
+    if (fallbackRes.ok) {
+      res = fallbackRes;
+      cleanModel = "gemini-2.5-flash";
+    }
+  }
 
   if (!res.ok) {
     const errorText = await res.text();

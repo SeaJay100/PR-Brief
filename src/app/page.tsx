@@ -48,7 +48,15 @@ export default function Home() {
       try {
         const saved = localStorage.getItem("pr_brief_settings");
         if (saved) {
-          return JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          if (
+            parsed.provider === "gemini" &&
+            (parsed.model === "gemini-2.0-flash" || parsed.model === "gemini-2.0-flash-lite")
+          ) {
+            parsed.model = "gemini-2.5-flash";
+            localStorage.setItem("pr_brief_settings", JSON.stringify(parsed));
+          }
+          return parsed;
         }
       } catch (e) {
         console.warn("Failed to load settings from localStorage", e);
