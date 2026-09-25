@@ -25,7 +25,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<AIProvider, string> = {
 export const MODEL_REMAP_MAP: Record<string, string> = {
   // Google Gemini legacy models
   "gemini-1.5-flash": "gemini-2.5-flash",
-  "gemini-1.5-flash-8b": "gemini-2.5-flash-lite",
+  "gemini-1.5-flash-8b": "gemini-2.0-flash-lite",
   "gemini-1.5-pro": "gemini-2.5-pro",
   "gemini-1.0-pro": "gemini-2.5-flash",
   "gemini-pro": "gemini-2.5-flash",
@@ -318,8 +318,8 @@ async function callGeminiAPI(
   const candidateModels = [
     sanitizedModel,
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
   ].filter(
     (m, i, arr) =>
       arr.indexOf(m) === i &&
@@ -662,9 +662,10 @@ async function callOllamaAPI(
       signal: AbortSignal.timeout(30000),
     });
 
+    const responseBody = res.ok ? await res.json().catch(() => null) : null;
+
     if (res.ok) {
-      const data = await res.json();
-      const text = data?.message?.content;
+      const text = responseBody?.message?.content;
       if (text) {
         return { text: text.trim(), usedModel: model };
       }
@@ -709,8 +710,7 @@ async function callOllamaAPI(
       }
     }
 
-    const errorText = await res.text();
-    throw new Error(`Ollama API error (${res.status}): ${errorText}`);
+    throw new Error(`Ollama API error (${res.status})`);
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "TimeoutError") {
       throw new Error(`Ollama request timed out after 30s. Ensure Ollama is running and responsive at ${normalizedBase}`);
