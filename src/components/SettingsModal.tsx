@@ -30,14 +30,14 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: "gemini",
     name: "Google Gemini",
-    desc: "Google's latest flagship model Gemini 3.8 Flash, featuring advanced software engineering and diff reasoning.",
+    desc: "Google's latest models — 100% compatible with Google AI Studio free API keys.",
     defaultModel: "gemini-3.8-flash",
     models: [
-      { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash (recommended)" },
-      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
-      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (fast & light)" },
-      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (deep reasoning)" },
+      { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash (Newest Flagship · Free Tier)" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Recommended · Free Tier)" },
+      { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (Fastest · Free Tier)" },
+      { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Free Tier)" },
+      { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Deep Reasoning · Free Tier)" },
     ],
   },
   {
